@@ -1,23 +1,44 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { C } from "@/lib/tema";
 import { Boton, Tarjeta, Etiqueta, Modal, FilaFormulario } from "@/lib/componentes";
 import { useAuth } from "@/lib/auth";
-import { VEHICULOS_INIT, type Vehiculo } from "@/lib/datos";
+
+interface VehiculoDB {
+  placa: string;
+  doc?: string;
+  telefono?: string;
+  color?: string;
+  nombre: string;
+  tipo: string;
+  puesto?: string;
+  correo?: string;
+  estado?: string;
+  ingreso?: string;
+  salida?: string;
+}
 
 export default function VehiculosPage() {
   const { user } = useAuth();
-  const [vehiculos, setVehiculos] = useState<Vehiculo[]>(VEHICULOS_INIT);
+  const [vehiculos, setVehiculos] = useState<VehiculoDB[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("todos");
   const [modal, setModal] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Vehiculo | null>(null);
-  const [form, setForm] = useState<Partial<Vehiculo>>({});
+  const [selected, setSelected] = useState<VehiculoDB | null>(null);
+  const [form, setForm] = useState<Partial<VehiculoDB>>({});
 
-  const canCreate = user?.role === "gerente" || user?.role === "empleado";
+  const canCreate = user?.role === "gerente";
   const canEdit = user?.role === "gerente";
   const canInactivate = user?.role === "gerente";
+
+  const load = async () => {
+    const res = await fetch("/api/vehiculos");
+    const data = await res.json();
+    setVehiculos(data);
+  };
+
+  useEffect(() => { load(); }, []);
 
   const visible = vehiculos.filter(v => {
     const q = search.toLowerCase();
@@ -27,25 +48,65 @@ export default function VehiculosPage() {
   });
 
   const openCreate = () => {
-    const isDiario = user?.role === "empleado";
-    setForm({
-      placa: "", nombre: "", tipo: isDiario ? "diario" : "mensual",
-      puesto: "", telefono: "", correo: "", estado: "activo",
-      ingreso: new Date().toISOString().slice(0, 10), salida: "—",
-    });
+    setForm({ placa: "", nombre: "", doc: "", telefono: "", color: "", tipo: "mensual" });
     setModal("create");
   };
 
-  const openEdit = (v: Vehiculo) => { setForm({ ...v }); setSelected(v); setModal("edit"); };
-  const openView = (v: Vehiculo) => { setSelected(v); setModal("view"); };
+  const openEdit = (v: VehiculoDB) => { setForm({ ...v }); setSelected(v); setModal("edit"); };
+  const openView = (v: VehiculoDB) => { setSelected(v); setModal("view"); };
 
-  const save = () => {
-    if (modal === "create") setVehiculos(prev => [...prev, { ...form, id: Date.now() } as Vehiculo]);
-    else setVehiculos(prev => prev.map(v => v.id === form.id ? form as Vehiculo : v));
+  const save = async () => {
+    if (modal === "create") {
+      const res = await fetch("/api/vehiculos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          placa: form.placa?.toUpperCase(),
+          doc: form.doc,
+          nombre: form.nombre,
+          telefono: form.telefono,
+          color: form.color || "No especificado",
+          tipo: "mensual",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "No se pudo registrar el vehículo");
+        return;
+      }
+    } else {
+      const res = await fetch(`/api/vehiculos/${form.placa}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ estado: form.estado }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "No se pudo actualizar");
+        return;
+      }
+    }
     setModal(null);
+    await load();
   };
 
-  const inactivar = (id: number) => setVehiculos(prev => prev.map(v => v.id === id ? { ...v, estado: v.estado === "activo" ? "inactivo" : "activo" } : v));
+  const inactivar = async (placa: string, estadoActual?: string) => {
+    const nuevoEstado = estadoActual === "inactivo" ? "activo" : "inactivo";
+
+    const res = await fetch(`/api/vehiculos/${placa}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ estado: nuevoEstado }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || "No se pudo actualizar el vehículo");
+      return;
+    }
+
+    await load();
+  };
 
   return (
     <div>
@@ -80,18 +141,18 @@ export default function VehiculosPage() {
             </thead>
             <tbody>
               {visible.map(v => (
-                <tr key={v.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                <tr key={v.placa} style={{ borderBottom: `1px solid ${C.border}` }}>
                   <td style={{ padding: "12px 16px", fontWeight: 700, fontFamily: "Syne" }}>{v.placa}</td>
                   <td style={{ padding: "12px 16px" }}>{v.nombre}</td>
                   <td style={{ padding: "12px 16px" }}><Etiqueta label={v.tipo} color={v.tipo === "mensual" ? "blue" : "green"} /></td>
-                  <td style={{ padding: "12px 16px", color: C.sub }}>{v.puesto}</td>
-                  <td style={{ padding: "12px 16px", color: C.sub, fontSize: 12 }}>{v.ingreso}</td>
-                  <td style={{ padding: "12px 16px" }}><Etiqueta label={v.estado} color={v.estado === "activo" ? "green" : "red"} /></td>
+                  <td style={{ padding: "12px 16px", color: C.sub }}>{v.puesto || "—"}</td>
+                  <td style={{ padding: "12px 16px", color: C.sub, fontSize: 12 }}>{v.ingreso || "—"}</td>
+                  <td style={{ padding: "12px 16px" }}><Etiqueta label={v.estado || "activo"} color={v.estado === "inactivo" ? "red" : "green"} /></td>
                   <td style={{ padding: "12px 16px" }}>
                     <div style={{ display: "flex", gap: 6 }}>
                       <Boton small variant="ghost" onClick={() => openView(v)}>Ver</Boton>
                       {canEdit && <Boton small variant="outline" onClick={() => openEdit(v)}>Editar</Boton>}
-                      {canInactivate && <Boton small danger onClick={() => inactivar(v.id)}>{v.estado === "activo" ? "Inactivar" : "Activar"}</Boton>}
+                      {canInactivate && <Boton small danger onClick={() => inactivar(v.placa, v.estado)}>{v.estado === "activo" ? "Inactivar" : "Activar"}</Boton>}
                     </div>
                   </td>
                 </tr>
@@ -106,15 +167,29 @@ export default function VehiculosPage() {
         <Modal title={modal === "create" ? "Registrar Vehículo" : "Editar Vehículo"} onClose={() => setModal(null)}>
           <FilaFormulario label="Placa (3 letras + 3 números)"><input value={form.placa || ""} onChange={e => setForm({ ...form, placa: e.target.value.toUpperCase() })} maxLength={6} placeholder="ABC123" /></FilaFormulario>
           <FilaFormulario label="Nombre del propietario"><input value={form.nombre || ""} onChange={e => setForm({ ...form, nombre: e.target.value })} /></FilaFormulario>
+          {modal === "create" && (
+            <>
+              <FilaFormulario label="Documento del propietario"><input value={form.doc || ""} onChange={e => setForm({ ...form, doc: e.target.value })} maxLength={12} /></FilaFormulario>
+              <FilaFormulario label="Teléfono del propietario (si no existe)"><input value={form.telefono || ""} onChange={e => setForm({ ...form, telefono: e.target.value })} maxLength={10} placeholder="3001234567" /></FilaFormulario>
+              <FilaFormulario label="Color"><input value={form.color || ""} onChange={e => setForm({ ...form, color: e.target.value })} placeholder="Ej: Rojo" /></FilaFormulario>
+            </>
+          )}
           <FilaFormulario label="Tipo">
-            <select value={form.tipo || ""} onChange={e => setForm({ ...form, tipo: e.target.value })} disabled={user?.role === "empleado"}>
-              <option value="diario">Diario</option><option value="mensual">Mensual</option>
+            <select value="mensual" disabled>
+              <option value="mensual">Mensual (contrato)</option>
             </select>
           </FilaFormulario>
-          <FilaFormulario label="Puesto asignado"><input value={form.puesto || ""} onChange={e => setForm({ ...form, puesto: e.target.value })} placeholder="Ej: A-12" /></FilaFormulario>
-          <FilaFormulario label="Teléfono"><input value={form.telefono || ""} onChange={e => setForm({ ...form, telefono: e.target.value })} maxLength={10} /></FilaFormulario>
-          <FilaFormulario label="Correo electrónico"><input value={form.correo || ""} onChange={e => setForm({ ...form, correo: e.target.value })} type="email" /></FilaFormulario>
-          {user?.role === "empleado" && <FilaFormulario label="Hora de salida"><input value={form.salida === "—" ? "" : form.salida || ""} onChange={e => setForm({ ...form, salida: e.target.value })} type="datetime-local" /></FilaFormulario>}
+          {modal === "edit" && (
+            <FilaFormulario label="Estado">
+              <select
+                value={form.estado || "activo"}
+                onChange={e => setForm({ ...form, estado: e.target.value })}
+              >
+                <option value="activo">Activo</option>
+                <option value="inactivo">Inactivo</option>
+              </select>
+            </FilaFormulario>
+          )}
           <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
             <Boton onClick={save} style={{ flex: 1 }}>Guardar</Boton>
             <Boton variant="ghost" onClick={() => setModal(null)} style={{ flex: 1 }}>Cancelar</Boton>
@@ -124,7 +199,7 @@ export default function VehiculosPage() {
 
       {modal === "view" && selected && (
         <Modal title="Detalle del Vehículo" onClose={() => setModal(null)}>
-          {[["Placa", selected.placa], ["Propietario", selected.nombre], ["Tipo", selected.tipo], ["Puesto", selected.puesto], ["Teléfono", selected.telefono], ["Correo", selected.correo], ["Ingreso", selected.ingreso], ["Salida", selected.salida], ["Estado", selected.estado]].map(([k, v]) => (
+          {[["Placa", selected.placa], ["Propietario", selected.nombre], ["Tipo", selected.tipo], ["Estado", selected.estado || "activo"]].map(([k, v]) => (
             <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
               <span style={{ color: C.sub, fontSize: 13 }}>{k}</span>
               <span style={{ fontWeight: 600, fontSize: 13 }}>{v}</span>

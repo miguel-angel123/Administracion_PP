@@ -1,14 +1,67 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { C } from "@/lib/tema";
 import { TarjetaEstadistica, Tarjeta } from "@/lib/componentes";
-import { VEHICULOS_INIT } from "@/lib/datos";
+
+interface Estadisticas {
+  totalVehiculos: number;
+  activos: number;
+  mensuales: number;
+  diarios: number;
+  puestosDisponibles: number;
+  ingresosSemanales: { dia: string; total: number }[];
+}
+
+interface Tarifa {
+  icon: string;
+  plan: string;
+  precio: string;
+}
 
 export default function EstadisticasPage() {
-  const vehiculos = VEHICULOS_INIT;
-  const dias = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-  const data = [8, 12, 7, 15, 11, 20, 6];
-  const maxD = Math.max(...data);
+  const [stats, setStats] = useState<Estadisticas>({
+    totalVehiculos: 0,
+    activos: 0,
+    mensuales: 0,
+    diarios: 0,
+    puestosDisponibles: 100,
+    ingresosSemanales: [],
+  });
+
+  const [tarifas, setTarifas] = useState<Tarifa[]>([]);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [statsRes, tarifasRes] = await Promise.all([
+          fetch("/api/estadisticas").then(r => r.json()),
+          fetch("/api/tarifas").then(r => r.json()),
+        ]);
+
+        setStats({
+          totalVehiculos: statsRes.totalVehiculos ?? 0,
+          activos: statsRes.activos ?? 0,
+          mensuales: statsRes.mensuales ?? 0,
+          diarios: statsRes.diarios ?? 0,
+          puestosDisponibles: statsRes.puestosDisponibles ?? 100,
+          ingresosSemanales: Array.isArray(statsRes.ingresosSemanales)
+            ? statsRes.ingresosSemanales
+            : [],
+        });
+
+        if (Array.isArray(tarifasRes)) setTarifas(tarifasRes);
+      } catch {
+        // Mantiene valores iniciales
+      }
+    }
+    load();
+  }, []);
+
+  const dias = stats.ingresosSemanales.map(d => d.dia);
+  const data = stats.ingresosSemanales.map(d => d.total);
+  const maxD = data.length ? Math.max(...data) || 1 : 1;
+  const libres = stats.puestosDisponibles;
 
   return (
     <div>
@@ -18,10 +71,10 @@ export default function EstadisticasPage() {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 14, marginBottom: 24 }}>
-        <TarjetaEstadistica icon="🚗" label="Total vehículos" value={vehiculos.length} color={C.accent} />
-        <TarjetaEstadistica icon="✅" label="Activos" value={vehiculos.filter(v => v.estado === "activo").length} color={C.green} />
-        <TarjetaEstadistica icon="📅" label="Mensuales" value={vehiculos.filter(v => v.tipo === "mensual").length} color={C.accent2} />
-        <TarjetaEstadistica icon="🗓️" label="Diarios hoy" value={vehiculos.filter(v => v.tipo === "diario").length} color={C.gold} />
+        <TarjetaEstadistica icon="🚗" label="Total vehículos" value={stats.totalVehiculos} color={C.accent} />
+        <TarjetaEstadistica icon="✅" label="Activos" value={stats.activos} color={C.green} />
+        <TarjetaEstadistica icon="📅" label="Mensuales" value={stats.mensuales} color={C.accent2} />
+        <TarjetaEstadistica icon="🗓️" label="Diarios hoy" value={stats.diarios} color={C.gold} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}>
@@ -39,18 +92,22 @@ export default function EstadisticasPage() {
         </Tarjeta>
         <Tarjeta>
           <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 16 }}>Tarifas vigentes</h3>
-          {[["🕐 Por hora", "$3.000 COP"], ["🗓️ Diario", "$18.000 COP"], ["📅 Mensual", "$200.000 COP"]].map(([t, v]) => (
-            <div key={t} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-              <span style={{ fontSize: 14 }}>{t}</span>
-              <span style={{ fontWeight: 700, color: C.gold, fontSize: 14 }}>{v}</span>
-            </div>
-          ))}
+          {tarifas.length > 0 ? (
+            tarifas.map(t => (
+              <div key={t.plan} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+                <span style={{ fontSize: 14 }}>{t.icon} {t.plan}</span>
+                <span style={{ fontWeight: 700, color: C.gold, fontSize: 14 }}>{t.precio}</span>
+              </div>
+            ))
+          ) : (
+            <p style={{ color: C.sub, fontSize: 13 }}>Cargando tarifas…</p>
+          )}
           <div style={{ marginTop: 14 }}>
             <p style={{ fontSize: 12, color: C.sub }}>Espacios disponibles</p>
             <div style={{ marginTop: 8, background: C.surface, borderRadius: 8, height: 12, overflow: "hidden" }}>
-              <div style={{ width: "62%", height: "100%", background: `linear-gradient(90deg,${C.green},#34D399)`, borderRadius: 8 }} />
+              <div style={{ width: `${libres}%`, height: "100%", background: `linear-gradient(90deg,${C.green},#34D399)`, borderRadius: 8 }} />
             </div>
-            <p style={{ fontSize: 12, color: C.sub, marginTop: 4 }}>62 / 100 libres</p>
+            <p style={{ fontSize: 12, color: C.sub, marginTop: 4 }}>{libres} / 100 libres</p>
           </div>
         </Tarjeta>
       </div>

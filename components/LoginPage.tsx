@@ -1,26 +1,38 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { C } from "@/lib/tema";
 import { Tarjeta, FilaFormulario } from "@/lib/componentes";
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const router = useRouter();
   const [doc, setDoc] = useState("");
   const [pwd, setPwd] = useState("");
   const [err, setErr] = useState("");
   const [tries, setTries] = useState(0);
 
-  const submit = () => {
+  const submit = async () => {
     if (tries >= 10) {
       setErr("Límite de intentos alcanzado (10/10).");
       return;
     }
-    const result = login(doc, pwd);
+
+    const result = await login(doc, pwd);
+
     if (!result.ok) {
-      setTries(t => t + 1);
+      setTries((t) => t + 1);
       setErr(`Credenciales incorrectas. Intento ${tries + 1}/10`);
+      return;
+    }
+
+    const me = await fetch("/api/auth/me").then(r => r.json());
+    if (me.ok && me.user?.role === "cliente") {
+      router.replace("/perfil");
+    } else {
+      router.replace("/");
     }
   };
 

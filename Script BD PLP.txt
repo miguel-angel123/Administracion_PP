@@ -1,0 +1,192 @@
+-- =====================================================================
+-- 1. ELIMINACIÓN PREVIA DE TABLAS Y TIPOS
+-- =====================================================================
+DROP TABLE IF EXISTS tickets CASCADE;
+DROP TABLE IF EXISTS contratos CASCADE;
+DROP TABLE IF EXISTS puestos CASCADE;
+DROP TABLE IF EXISTS logs_sistema CASCADE;
+DROP TABLE IF EXISTS sugerencias CASCADE;
+DROP TABLE IF EXISTS vehiculos CASCADE;
+DROP TABLE IF EXISTS usuarios CASCADE;
+DROP TABLE IF EXISTS tarifa CASCADE;
+DROP TABLE IF EXISTS Roles CASCADE;
+DROP TABLE IF EXISTS estados CASCADE;
+
+DROP TYPE IF EXISTS genero_enum CASCADE;
+
+-- =====================================================================
+-- 2. TABLAS MAESTRAS CON SOFT DELETE
+-- =====================================================================
+CREATE TABLE estados (
+  id_estado SERIAL PRIMARY KEY,
+  nombre_estado VARCHAR(50) NOT NULL,
+  fecha_eliminado TIMESTAMP NULL
+);
+
+CREATE TABLE Roles (
+  id_roles SERIAL PRIMARY KEY,
+  nombre_rol VARCHAR(50) NOT NULL,
+  fecha_eliminado TIMESTAMP NULL
+);
+
+CREATE TABLE tarifa (
+  id_tarifa SERIAL PRIMARY KEY,
+  tipo_vehiculo VARCHAR(50) NOT NULL, 
+  valor_minuto INTEGER NULL,
+  valor_hora INTEGER NULL,
+  valor_dia INTEGER NULL,
+  valor_mes INTEGER NULL,
+  fecha_eliminado TIMESTAMP NULL
+);
+
+CREATE UNIQUE INDEX idx_tarifa_tipo_vehiculo_unique 
+  ON tarifa(tipo_vehiculo) WHERE fecha_eliminado IS NULL;
+
+-- =====================================================================
+-- 3. TABLAS PRINCIPALES CON SOFT DELETE
+-- =====================================================================
+CREATE TYPE genero_enum AS ENUM ('Masculino', 'Femenino', 'otro');
+
+CREATE TABLE usuarios (
+  documento INTEGER PRIMARY KEY,
+  estados_id_estado INTEGER NOT NULL,
+  Roles_id_roles INTEGER NOT NULL,
+  nombre VARCHAR(100) NOT NULL,
+  fecha_nacimiento DATE NOT NULL,
+  telefono VARCHAR(20) NOT NULL,
+  correo VARCHAR(100) NOT NULL,
+  genero genero_enum NULL,
+  contraseña VARCHAR(255) NOT NULL,
+  fecha_eliminado TIMESTAMP NULL,
+  CONSTRAINT fk_usr_roles FOREIGN KEY(Roles_id_roles) REFERENCES Roles(id_roles) ON UPDATE CASCADE,
+  CONSTRAINT fk_usr_estados FOREIGN KEY(estados_id_estado) REFERENCES estados(id_estado) ON UPDATE CASCADE
+);
+
+CREATE UNIQUE INDEX idx_usuarios_telefono_unique 
+  ON usuarios(telefono) WHERE fecha_eliminado IS NULL;
+
+CREATE UNIQUE INDEX idx_usuarios_correo_unique 
+  ON usuarios(correo) WHERE fecha_eliminado IS NULL;
+
+CREATE TABLE vehiculos (
+  placa VARCHAR(10) PRIMARY KEY,
+  usuarios_documento INTEGER NOT NULL,
+  estados_id_estado INTEGER NOT NULL,
+  tarifa_id_tarifa INTEGER NOT NULL, 
+  color VARCHAR(30) NOT NULL,
+  fecha_eliminado TIMESTAMP NULL,
+  CONSTRAINT fk_veh_usuarios FOREIGN KEY(usuarios_documento) REFERENCES usuarios(documento) ON UPDATE CASCADE,
+  CONSTRAINT fk_veh_estados FOREIGN KEY(estados_id_estado) REFERENCES estados(id_estado) ON UPDATE CASCADE
+);
+
+-- =====================================================================
+-- 4. TABLAS OPERATIVAS Y DE SOPORTE CON SOFT DELETE
+-- =====================================================================
+CREATE TABLE sugerencias (
+  id_sugerencia SERIAL PRIMARY KEY,
+  usuarios_documento INTEGER NOT NULL,
+  mensaje TEXT NOT NULL,
+  fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  fecha_eliminado TIMESTAMP NULL,
+  CONSTRAINT fk_sug_usuarios FOREIGN KEY(usuarios_documento) REFERENCES usuarios(documento) ON UPDATE CASCADE
+);
+
+CREATE TABLE logs_sistema (
+  id_log SERIAL PRIMARY KEY,
+  usuarios_documento INTEGER NOT NULL,
+  accion VARCHAR(255) NOT NULL,
+  fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  fecha_eliminado TIMESTAMP NULL,
+  CONSTRAINT fk_log_usuarios FOREIGN KEY(usuarios_documento) REFERENCES usuarios(documento) ON UPDATE CASCADE
+);
+
+CREATE TABLE puestos (
+  id_puesto SERIAL PRIMARY KEY,
+  numero_puesto INTEGER NOT NULL,
+  estado_puesto BOOLEAN NOT NULL DEFAULT FALSE,
+  fecha_eliminado TIMESTAMP NULL
+);
+
+CREATE UNIQUE INDEX idx_puestos_numero_puesto_unique 
+  ON puestos(numero_puesto) WHERE fecha_eliminado IS NULL;
+
+CREATE TABLE contratos (
+  id_contrato SERIAL PRIMARY KEY,
+  tarifa_id_tarifa INTEGER NOT NULL,
+  vehiculos_placa VARCHAR(10) NOT NULL,
+  usuarios_documento INTEGER NOT NULL,
+  estados_id_estado INTEGER NOT NULL,
+  fecha_inicio TIMESTAMP NOT NULL,
+  fecha_fin TIMESTAMP NOT NULL,
+  estado_pago BOOLEAN NOT NULL,
+  fecha_eliminado TIMESTAMP NULL,
+  CONSTRAINT fk_con_usuarios FOREIGN KEY(usuarios_documento) REFERENCES usuarios(documento) ON UPDATE CASCADE,
+  CONSTRAINT fk_con_vehiculos FOREIGN KEY(vehiculos_placa) REFERENCES vehiculos(placa) ON UPDATE CASCADE,
+  CONSTRAINT fk_con_tarifa FOREIGN KEY(tarifa_id_tarifa) REFERENCES tarifa(id_tarifa) ON UPDATE CASCADE,
+  CONSTRAINT fk_con_estados FOREIGN KEY(estados_id_estado) REFERENCES estados(id_estado) ON UPDATE CASCADE
+);
+
+CREATE TABLE tickets (
+  id_ticket SERIAL PRIMARY KEY,
+  usuarios_documento INTEGER NOT NULL,
+  puestos_id_puesto INTEGER NOT NULL,
+  tarifa_id_tarifa INTEGER NOT NULL,
+  vehiculos_placa VARCHAR(10) NOT NULL,
+  estados_id_estado INTEGER NOT NULL,
+  fecha_ingreso TIMESTAMP NOT NULL,
+  fecha_salida TIMESTAMP NULL,
+  valor_total INTEGER NOT NULL,
+  estado_pago BOOLEAN NOT NULL,
+  fecha_eliminado TIMESTAMP NULL,
+  CONSTRAINT fk_tic_vehiculos FOREIGN KEY(vehiculos_placa) REFERENCES vehiculos(placa) ON UPDATE CASCADE,
+  CONSTRAINT fk_tic_tarifa FOREIGN KEY(tarifa_id_tarifa) REFERENCES tarifa(id_tarifa) ON UPDATE CASCADE,
+  CONSTRAINT fk_tic_puestos FOREIGN KEY(puestos_id_puesto) REFERENCES puestos(id_puesto) ON UPDATE CASCADE,
+  CONSTRAINT fk_tic_usuarios FOREIGN KEY(usuarios_documento) REFERENCES usuarios(documento) ON UPDATE CASCADE,
+  CONSTRAINT fk_tic_estados FOREIGN KEY(estados_id_estado) REFERENCES estados(id_estado) ON UPDATE CASCADE
+);
+
+-- =====================================================================
+-- 5. FUNCIÓN Y TRIGGER DE INACTIVACIÓN
+-- =====================================================================
+CREATE OR REPLACE FUNCTION fn_gestion_inactivacion_usuario()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (NEW.fecha_eliminado IS NOT NULL AND OLD.fecha_eliminado IS NULL) OR 
+       (NEW.estados_id_estado = 2 AND OLD.estados_id_estado <> 2) THEN
+        
+        UPDATE vehiculos 
+        SET fecha_eliminado = COALESCE(NEW.fecha_eliminado, NOW()),
+            estados_id_estado = 2 
+        WHERE usuarios_documento = NEW.documento AND fecha_eliminado IS NULL;
+
+        UPDATE puestos 
+        SET estado_puesto = FALSE
+        WHERE id_puesto IN (
+            SELECT p.id_puesto 
+            FROM puestos p
+            JOIN tickets t ON p.id_puesto = t.puestos_id_puesto
+            WHERE t.usuarios_documento = NEW.documento
+        );
+
+        UPDATE contratos 
+        SET fecha_eliminado = COALESCE(NEW.fecha_eliminado, NOW()),
+            estados_id_estado = 2 
+        WHERE usuarios_documento = NEW.documento AND fecha_eliminado IS NULL;
+
+        UPDATE tickets 
+        SET fecha_eliminado = COALESCE(NEW.fecha_eliminado, NOW()),
+            estados_id_estado = 2,
+            fecha_salida = COALESCE(fecha_salida, NOW()) 
+        WHERE usuarios_documento = NEW.documento AND fecha_eliminado IS NULL;
+
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS tr_gestion_inactivacion_usuario ON usuarios;
+
+CREATE TRIGGER tr_gestion_inactivacion_usuario
+AFTER UPDATE ON usuarios
+FOR EACH ROW
+EXECUTE FUNCTION fn_gestion_inactivacion_usuario();

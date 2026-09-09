@@ -1,29 +1,53 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { C } from "@/lib/tema";
 import { Tarjeta, FilaFormulario, Boton, Estrellas, Etiqueta } from "@/lib/componentes";
 import { useAuth } from "@/lib/auth";
-import { SUGERENCIAS_INIT, type Sugerencia } from "@/lib/datos";
+
+interface SugerenciaDB {
+  id: number;
+  usuario: string;
+  fecha: string;
+  texto: string;
+  reseña: number;
+  estado: string;
+}
 
 export default function SugerenciasPage() {
   const { user } = useAuth();
-  const [sugerencias, setSugerencias] = useState<Sugerencia[]>(SUGERENCIAS_INIT);
+  const [sugerencias, setSugerencias] = useState<SugerenciaDB[]>([]);
   const [form, setForm] = useState({ texto: "", reseña: 0 });
   const [filter, setFilter] = useState("todas");
 
+  const load = async () => {
+    const res = await fetch("/api/sugerencias");
+    const data = await res.json();
+    setSugerencias(data);
+  };
+
+  useEffect(() => { load(); }, []);
+
   const visible = sugerencias.filter(s => filter === "todas" || s.estado === filter);
 
-  const marcarLeida = (id: number) => setSugerencias(prev => prev.map(s => s.id === id ? { ...s, estado: "leída" } : s));
+  const marcarLeida = async (id: number) => {
+    await fetch(`/api/sugerencias/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ estado: "leída" }),
+    });
+    await load();
+  };
 
-  const enviar = () => {
+  const enviar = async () => {
     if (!form.texto.trim()) return;
-    setSugerencias(prev => [...prev, {
-      id: Date.now(), usuario: user!.name,
-      fecha: new Date().toISOString().slice(0, 10),
-      texto: form.texto, reseña: form.reseña, estado: "pendiente",
-    }]);
+    await fetch("/api/sugerencias", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texto: form.texto, resena: form.reseña }),
+    });
     setForm({ texto: "", reseña: 0 });
+    await load();
   };
 
   return (
@@ -33,9 +57,11 @@ export default function SugerenciasPage() {
         <p style={{ color: C.sub, fontSize: 14 }}>RF 2.6 · RF 3.4</p>
       </div>
 
-      {user?.role === "cliente" && (
+      {user && (
         <Tarjeta style={{ marginBottom: 24 }}>
-          <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 14 }}>Enviar Sugerencia</h3>
+          <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 14 }}>
+            {user.role === "cliente" ? "Enviar Sugerencia" : "Dejar Opinión / Comentario"}
+          </h3>
           <FilaFormulario label="Tu sugerencia"><textarea value={form.texto} onChange={e => setForm({ ...form, texto: e.target.value })} rows={4} placeholder="Escribe aquí tu sugerencia…" /></FilaFormulario>
           <FilaFormulario label="Reseña"><Estrellas n={form.reseña} onChange={n => setForm({ ...form, reseña: n })} /></FilaFormulario>
           <Boton onClick={enviar}>Enviar Sugerencia</Boton>

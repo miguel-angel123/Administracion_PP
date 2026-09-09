@@ -18,6 +18,7 @@ const menuPorRol: Record<string, { label: string; href: string; icon: string }[]
   ],
   empleado: [
     { label: "Inicio", href: "/", icon: "🏠" },
+    { label: "Tickets", href: "/tickets", icon: "🎫" },
     { label: "Vehículos", href: "/vehiculos", icon: "🚗" },
     { label: "Sugerencias", href: "/sugerencias", icon: "💬" },
     { label: "Estadísticas", href: "/estadisticas", icon: "📊" },
@@ -51,8 +52,8 @@ export default function BarraLateral() {
   const items = menuPorRol[user.role] || [];
   const rolInfo = etiquetasRol[user.role];
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     router.push("/");
   };
 

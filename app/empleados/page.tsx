@@ -1,17 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { C } from "@/lib/tema";
 import { Boton, Tarjeta, Etiqueta, Modal, FilaFormulario } from "@/lib/componentes";
 import { useAuth } from "@/lib/auth";
-import { EMPLEADOS_INIT, type Empleado } from "@/lib/datos";
+
+interface EmpleadoDB {
+  doc: string;
+  nombre: string;
+  cargo: string;
+  telefono: string;
+  correo: string;
+  estado: string;
+}
 
 export default function EmpleadosPage() {
   const { user } = useAuth();
-  const [empleados, setEmpleados] = useState<Empleado[]>(EMPLEADOS_INIT);
+  const [empleados, setEmpleados] = useState<EmpleadoDB[]>([]);
   const [modal, setModal] = useState<string | null>(null);
-  const [form, setForm] = useState<Partial<Empleado>>({});
+  const [form, setForm] = useState<Partial<EmpleadoDB>>({});
   const [search, setSearch] = useState("");
+
+  const load = async () => {
+    const res = await fetch("/api/usuarios?rol=empleado");
+    const data = await res.json();
+    setEmpleados(data);
+  };
+
+  useEffect(() => { load(); }, []);
 
   const visible = empleados.filter(e => e.nombre.toLowerCase().includes(search.toLowerCase()) || e.doc.includes(search));
 
@@ -20,15 +36,45 @@ export default function EmpleadosPage() {
     setModal("create");
   };
 
-  const openEdit = (e: Empleado) => { setForm({ ...e }); setModal("edit"); };
+  const openEdit = (e: EmpleadoDB) => { setForm({ ...e }); setModal("edit"); };
 
-  const save = () => {
-    if (modal === "create") setEmpleados(prev => [...prev, { ...form, id: Date.now() } as Empleado]);
-    else setEmpleados(prev => prev.map(e => e.id === form.id ? form as Empleado : e));
+  const save = async () => {
+    const esCrear = modal === "create";
+
+    if (esCrear) {
+      await fetch("/api/usuarios", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, password: "123456" }),
+      });
+    } else if (form.doc) {
+      await fetch(`/api/usuarios/${form.doc}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nombre: form.nombre,
+          cargo: form.cargo,
+          telefono: form.telefono,
+          correo: form.correo,
+          estado: form.estado,
+        }),
+      });
+    }
     setModal(null);
+    await load();
   };
 
-  const inactivar = (id: number) => setEmpleados(prev => prev.map(e => e.id === id ? { ...e, estado: e.estado === "inactivo" ? "trabajando" : "inactivo" } : e));
+  const inactivar = async (doc: string) => {
+    const emp = empleados.find(e => e.doc === doc);
+    await fetch(`/api/usuarios/${doc}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        estado: emp?.estado === "inactivo" ? "trabajando" : "inactivo",
+      }),
+    });
+    await load();
+  };
 
   return (
     <div>
@@ -44,7 +90,7 @@ export default function EmpleadosPage() {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 14 }}>
         {visible.map(emp => (
-          <Tarjeta key={emp.id}>
+          <Tarjeta key={emp.doc}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
               <div style={{ width: 46, height: 46, borderRadius: 14, background: `${C.accent}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>👷</div>
               <Etiqueta label={emp.estado} color={emp.estado === "trabajando" ? "green" : emp.estado === "descansando" ? "blue" : "red"} />
@@ -59,7 +105,7 @@ export default function EmpleadosPage() {
             {user?.role === "gerente" && (
               <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
                 <Boton small variant="outline" onClick={() => openEdit(emp)}>Editar</Boton>
-                <Boton small danger onClick={() => inactivar(emp.id)}>{emp.estado === "inactivo" ? "Activar" : "Inactivar"}</Boton>
+                <Boton small danger onClick={() => inactivar(emp.doc)}>{emp.estado === "inactivo" ? "Activar" : "Inactivar"}</Boton>
               </div>
             )}
           </Tarjeta>
