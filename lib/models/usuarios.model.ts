@@ -1,7 +1,10 @@
+// Modelo de usuarios: empleados, clientes y alta automática.
+// Reglas de rol y manejo de contraseñas viven aquí.
 import bcrypt from "bcryptjs";
 import pool from "@/lib/db";
 import { ErrorDominio } from "./errores";
 
+// Contratos de entrada.
 export interface DatosEmpleado {
   doc: number;
   nombre: string;
@@ -19,7 +22,48 @@ export interface DatosCliente {
   correo?: string;
 }
 
-export async function listarUsuariosPorRol(rol: string) {
+interface OpcionesListado {
+  pagina?: number;
+  tamano?: number;
+  buscar?: string;
+  orden?: "nombre" | "cargo" | "documento";
+  dir?: "asc" | "desc";
+}
+
+// Lista usuarios por nombre de rol con paginación y orden server-side.
+// Excluye soft-deleted.
+export async function listarUsuariosPorRol(rol: string, opts: OpcionesListado = {}) {
+  const pagina = Math.max(1, opts.pagina || 1);
+  const tamano = Math.min(100, Math.max(1, opts.tamano || 20));
+  const offset = (pagina - 1) * tamano;
+
+  const filtros: string[] = ["r.nombre_rol = $1", "u.fecha_eliminado IS NULL"];
+  const params: unknown[] = [rol];
+
+  if (opts.buscar && opts.buscar.trim()) {
+    params.push(`%${opts.buscar.trim()}%`);
+    const idx = params.length;
+    filtros.push(`(u.nombre ILIKE $${idx} OR u.documento::text ILIKE $${idx})`);
+  }
+
+  const where = "WHERE " + filtros.join(" AND ");
+
+  const cols: Record<string, string> = {
+    nombre: "u.nombre",
+    cargo: "COALESCE(u.cargo, '')",
+    documento: "u.documento",
+  };
+  const col = cols[opts.orden || "nombre"] || "u.nombre";
+  const dir = opts.dir === "desc" ? "DESC" : "ASC";
+
+  const total = await pool.query(
+    `SELECT COUNT(*)::int AS total
+     FROM usuarios u
+     JOIN roles r ON r.id_roles = u.roles_id_roles
+     ${where}`,
+    params
+  );
+
   const { rows } = await pool.query(
     `SELECT
        u.documento AS doc,
@@ -31,15 +75,23 @@ export async function listarUsuariosPorRol(rol: string) {
      FROM usuarios u
      JOIN roles r ON r.id_roles = u.roles_id_roles
      JOIN estados e ON e.id_estado = u.estados_id_estado
-     WHERE r.nombre_rol = $1
-       AND u.fecha_eliminado IS NULL
-     ORDER BY u.nombre`,
-    [rol]
+     ${where}
+     ORDER BY ${col} ${dir}
+     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, tamano, offset]
   );
 
-  return rows;
+  return {
+    datos: rows,
+    total: total.rows[0].total,
+    pagina,
+    tamano,
+    totalPaginas: Math.max(1, Math.ceil(total.rows[0].total / tamano)),
+  };
 }
 
+// Devuelve el usuario con rol y estado, incluyendo si está eliminado.
+// Usado antes de crear/actualizar y para validar propietarios.
 export async function obtenerUsuarioConRol(doc: number) {
   const { rows } = await pool.query(
     `SELECT
@@ -60,16 +112,17 @@ export async function obtenerUsuarioConRol(doc: number) {
   return rows[0] || null;
 }
 
+// Crea o actualiza un empleado. Hashea la contraseña y fuerza rol "empleado".
+// ON CONFLICT permite reusar la función para "upsert".
 export async function crearEmpleado(datos: DatosEmpleado) {
   const hash = await bcrypt.hash(datos.password || "123456", 10);
 
   const { rows } = await pool.query(
     `INSERT INTO usuarios (
        documento, estados_id_estado, roles_id_roles,
-       nombre, fecha_nacimiento, telefono, correo,
-       genero, contraseña, cargo
+       nombre, telefono, correo, contraseña, cargo
      )
-     SELECT $1, e.id_estado, r.id_roles, $2, '2000-01-01', $3, $4, 'Masculino', $5, $6
+     SELECT $1, e.id_estado, r.id_roles, $2, $3, $4, $5, $6
      FROM estados e, roles r
      WHERE e.nombre_estado = 'activo' AND r.nombre_rol = 'empleado'
      ON CONFLICT (documento) DO UPDATE SET
@@ -96,6 +149,7 @@ export async function crearEmpleado(datos: DatosEmpleado) {
   return rows[0];
 }
 
+// Actualiza parcialmente. Solo escribe los campos definitivamente presentes.
 export async function actualizarUsuario(
   doc: number,
   cambios: {
@@ -146,6 +200,7 @@ export async function actualizarUsuario(
     values
   );
 
+  // El estado se trata aparte porque involucra cambiar fecha_eliminado.
   if (cambios.estado) {
     await cambiarEstadoPorNombre(doc, cambios.estado);
   }
@@ -153,6 +208,8 @@ export async function actualizarUsuario(
   return { ok: true };
 }
 
+// Cambia el estado del usuario por nombre ("activo", "trabajando", "descansando", "inactivo").
+// Regla: "inactivo" implica soft delete (fecha_eliminado); el resto limpia esa fecha.
 export async function cambiarEstadoPorNombre(doc: number, nombreEstado: string) {
   const { rows } = await pool.query(
     `SELECT id_estado
@@ -181,14 +238,19 @@ export async function cambiarEstadoPorNombre(doc: number, nombreEstado: string) 
   return { ok: true };
 }
 
+// Garantiza que exista un cliente. Se usa al registrar vehículo mensual
+// o al crear un ticket con un documento nuevo.
 export async function crearClienteSiNoExiste(datos: DatosCliente) {
   const existente = await obtenerUsuarioConRol(datos.doc);
 
+  // Caso 1: existe y no está eliminado.
   if (existente && !existente.eliminado) {
+    // Regla: no se puede usar un empleado/gerente como propietario.
     if (existente.role !== "cliente") {
       throw new ErrorDominio("El documento pertenece a un empleado/gerente", 400);
     }
 
+    // Si llega teléfono nuevo, se actualiza (mejora el dato sin bloquear).
     if (datos.telefono) {
       await pool.query(
         `UPDATE usuarios SET telefono = $1 WHERE documento = $2`,
@@ -199,6 +261,8 @@ export async function crearClienteSiNoExiste(datos: DatosCliente) {
     return { usuario: existente, creado: false };
   }
 
+  // Caso 2: no existe (o está soft-deleted). Se crea como "cliente" con datos mínimos.
+  // Contraseña inicial = el propio documento: el cliente puede cambiarla después.
   const hash = await bcrypt.hash(String(datos.doc), 10);
   const telefono = datos.telefono || `3${String(datos.doc).padStart(9, "0")}`;
   const correo = datos.correo || `${datos.doc}@parqueadero.generado`;
@@ -207,10 +271,9 @@ export async function crearClienteSiNoExiste(datos: DatosCliente) {
   const { rows } = await pool.query(
     `INSERT INTO usuarios (
        documento, estados_id_estado, roles_id_roles,
-       nombre, fecha_nacimiento, telefono, correo,
-       genero, contraseña
+       nombre, telefono, correo, contraseña
      )
-     SELECT $1, e.id_estado, r.id_roles, $2, '2000-01-01', $3, $4, 'otro', $5
+     SELECT $1, e.id_estado, r.id_roles, $2, $3, $4, $5
      FROM estados e, roles r
      WHERE e.nombre_estado = 'activo' AND r.nombre_rol = 'cliente'
      RETURNING documento, nombre, telefono, correo`,

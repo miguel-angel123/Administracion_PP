@@ -9,6 +9,8 @@ interface Estadisticas {
   activos: number;
   mensuales: number;
   diarios: number;
+  totalPuestos: number;
+  puestosOcupados: number;
   puestosDisponibles: number;
   ingresosSemanales: { dia: string; total: number }[];
 }
@@ -25,7 +27,9 @@ export default function EstadisticasPage() {
     activos: 0,
     mensuales: 0,
     diarios: 0,
-    puestosDisponibles: 100,
+    totalPuestos: 0,
+    puestosOcupados: 0,
+    puestosDisponibles: 0,
     ingresosSemanales: [],
   });
 
@@ -44,7 +48,9 @@ export default function EstadisticasPage() {
           activos: statsRes.activos ?? 0,
           mensuales: statsRes.mensuales ?? 0,
           diarios: statsRes.diarios ?? 0,
-          puestosDisponibles: statsRes.puestosDisponibles ?? 100,
+          totalPuestos: statsRes.totalPuestos ?? 0,
+          puestosOcupados: statsRes.puestosOcupados ?? 0,
+          puestosDisponibles: statsRes.puestosDisponibles ?? 0,
           ingresosSemanales: Array.isArray(statsRes.ingresosSemanales)
             ? statsRes.ingresosSemanales
             : [],
@@ -61,7 +67,6 @@ export default function EstadisticasPage() {
   const dias = stats.ingresosSemanales.map(d => d.dia);
   const data = stats.ingresosSemanales.map(d => d.total);
   const maxD = data.length ? Math.max(...data) || 1 : 1;
-  const libres = stats.puestosDisponibles;
 
   return (
     <div>
@@ -105,9 +110,16 @@ export default function EstadisticasPage() {
           <div style={{ marginTop: 14 }}>
             <p style={{ fontSize: 12, color: C.sub }}>Espacios disponibles</p>
             <div style={{ marginTop: 8, background: C.surface, borderRadius: 8, height: 12, overflow: "hidden" }}>
-              <div style={{ width: `${libres}%`, height: "100%", background: `linear-gradient(90deg,${C.green},#34D399)`, borderRadius: 8 }} />
+              <div style={{
+                width: `${stats.totalPuestos ? (stats.puestosDisponibles / stats.totalPuestos) * 100 : 0}%`,
+                height: "100%",
+                background: `linear-gradient(90deg,${C.green},#34D399)`,
+                borderRadius: 8,
+              }} />
             </div>
-            <p style={{ fontSize: 12, color: C.sub, marginTop: 4 }}>{libres} / 100 libres</p>
+            <p style={{ fontSize: 12, color: C.sub, marginTop: 4 }}>
+              {stats.puestosDisponibles} / {stats.totalPuestos} libres ({stats.puestosOcupados} ocupados)
+            </p>
           </div>
         </Tarjeta>
       </div>

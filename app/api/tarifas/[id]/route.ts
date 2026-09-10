@@ -1,3 +1,4 @@
+// Edición y borrado lógico de una tarifa específica. Solo gerente.
 import { NextResponse } from "next/server";
 import { getSesion } from "@/lib/session";
 import { ensureSeed } from "@/lib/seed";
@@ -23,6 +24,7 @@ export async function PATCH(
 
   try {
     const body = await req.json();
+    // El modelo valida modalidad, tipo de vehículo y aplica solo los campos presentes.
     await tarifasModel.actualizarTarifa(Number(id), {
       tipoVehiculoId: body.tipoVehiculoId,
       modalidad: body.modalidad,
@@ -60,6 +62,7 @@ export async function DELETE(
   const { id } = await params;
 
   try {
+    // Soft delete: la tarifa deja de ser visible pero se conserva para reportes históricos.
     await tarifasModel.eliminarTarifa(Number(id));
     await registrarLog(sesion.doc, `Eliminó tarifa ${id}`);
 

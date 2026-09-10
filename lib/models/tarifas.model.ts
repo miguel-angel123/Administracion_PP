@@ -1,8 +1,13 @@
+// Modelo de tarifas. Una tarifa se identifica por (modalidad, tipo de vehículo).
+// modalidad = "diario" | "mensual" | "por_hora".
 import pool from "@/lib/db";
 import { ErrorDominio } from "./errores";
 
+// Modalidades válidas. Se usa para validar antes de tocar la BD.
 const MODALIDADES = ["diario", "mensual", "por_hora"];
 
+// Devuelve la tarifa vigente de una modalidad. Si se pasa tipoVehiculoId,
+// filtra también por tipo (auto/moto/…). Usada al crear ticket y al cerrar/cobrar.
 export async function obtenerTarifaPorTipo(tipo: string, tipoVehiculoId?: number) {
   let query = `SELECT id_tarifa, tipo_vehiculo, tipo_vehiculo_id, valor_hora, valor_dia, valor_mes
                FROM tarifa
@@ -21,6 +26,8 @@ export async function obtenerTarifaPorTipo(tipo: string, tipoVehiculoId?: number
   return rows[0];
 }
 
+// Vista simplificada para renderizar tarjetas: {icon, plan, precio, desc}.
+// Una entrada por modalidad activa.
 export async function listarTarifasParaVista() {
   const { rows } = await pool.query(
     `SELECT tipo_vehiculo, valor_hora, valor_dia, valor_mes
@@ -55,6 +62,29 @@ export async function listarTarifasParaVista() {
     .filter(Boolean);
 }
 
+// Vista pública por tipo de vehículo. Una fila por cada tarifa real
+// (combinación única de modalidad + tipo). Usada por el cliente en /tarifas.
+export async function listarTarifasPorTipo() {
+  const { rows } = await pool.query(
+    `SELECT
+       t.id_tarifa::text AS id,
+       t.tipo_vehiculo AS modalidad,
+       t.tipo_vehiculo_id::text AS tipo_vehiculo_id,
+       COALESCE(tv.nombre, 'General') AS tipo_nombre,
+       COALESCE(tv.icono, '🚗') AS tipo_icono,
+       t.valor_hora,
+       t.valor_dia,
+       t.valor_mes
+     FROM tarifa t
+     LEFT JOIN tipos_vehiculo tv ON tv.id_tipo_vehiculo = t.tipo_vehiculo_id
+     WHERE t.fecha_eliminado IS NULL
+     ORDER BY tv.nombre, t.tipo_vehiculo`
+  );
+  return rows;
+}
+
+// Vista administrativa (una fila por tarifa real, con tipo de vehículo).
+// Útil para la pantalla de gerente que gestiona tarifas por tipo.
 export async function listarTarifasAdmin() {
   const { rows } = await pool.query(
     `SELECT
@@ -74,6 +104,7 @@ export async function listarTarifasAdmin() {
   return rows;
 }
 
+// Crear tarifa. Valida modalidad + tipo de vehículo y evita duplicados activos.
 export async function crearTarifa(datos: {
   tipoVehiculoId: number | string;
   modalidad: string;
@@ -91,6 +122,7 @@ export async function crearTarifa(datos: {
     throw new ErrorDominio("Modalidad inválida. Use diario, mensual o por_hora", 400);
   }
 
+  // Verifica que el tipo exista (evita huérfanos por FK).
   const tipoExiste = await pool.query(
     `SELECT id_tipo_vehiculo FROM tipos_vehiculo
      WHERE id_tipo_vehiculo = $1 AND fecha_eliminado IS NULL`,
@@ -100,6 +132,7 @@ export async function crearTarifa(datos: {
     throw new ErrorDominio("Tipo de vehículo no existe", 400);
   }
 
+  // Solo una tarifa activa por (modalidad, tipo).
   const duplicado = await pool.query(
     `SELECT 1 FROM tarifa
      WHERE tipo_vehiculo = $1 AND tipo_vehiculo_id = $2 AND fecha_eliminado IS NULL
@@ -125,6 +158,7 @@ export async function crearTarifa(datos: {
   return { ok: true };
 }
 
+// Actualización parcial. Solo escribe los campos presentes.
 export async function actualizarTarifa(
   id: number,
   cambios: {
@@ -182,6 +216,38 @@ export async function actualizarTarifa(
     throw new ErrorDominio("No hay campos para actualizar", 400);
   }
 
+  // Si se cambia modalidad o tipo, verifica que la combinación resultante no
+  // choque con otra tarifa activa. Se consultan los valores actuales porque el
+  // update es parcial y solo uno de los dos puede venir en el request.
+  if (cambios.modalidad !== undefined || cambios.tipoVehiculoId !== undefined) {
+    const actual = await pool.query(
+      `SELECT tipo_vehiculo, tipo_vehiculo_id FROM tarifa
+       WHERE id_tarifa = $1 AND fecha_eliminado IS NULL`,
+      [id]
+    );
+
+    if (actual.rows.length) {
+      const modalidadFinal = cambios.modalidad ?? actual.rows[0].tipo_vehiculo;
+      const tipoFinal = cambios.tipoVehiculoId !== undefined
+        ? Number(cambios.tipoVehiculoId)
+        : actual.rows[0].tipo_vehiculo_id;
+
+      const duplicado = await pool.query(
+        `SELECT 1 FROM tarifa
+         WHERE tipo_vehiculo = $1
+           AND tipo_vehiculo_id = $2
+           AND id_tarifa <> $3
+           AND fecha_eliminado IS NULL
+         LIMIT 1`,
+        [modalidadFinal, tipoFinal, id]
+      );
+
+      if (duplicado.rows.length) {
+        throw new ErrorDominio(`Ya existe una tarifa ${modalidadFinal} para este tipo de vehículo`, 409);
+      }
+    }
+  }
+
   valores.push(id);
   await pool.query(
     `UPDATE tarifa
@@ -193,6 +259,7 @@ export async function actualizarTarifa(
   return { ok: true };
 }
 
+// Soft delete. Retorna 404 si la tarifa no existe o ya estaba eliminada.
 export async function eliminarTarifa(id: number) {
   const { rows } = await pool.query(
     `UPDATE tarifa SET fecha_eliminado = NOW()

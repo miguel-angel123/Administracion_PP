@@ -1,6 +1,9 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { alertaAdvertencia } from "@/lib/alerta";
+import { fetchSeguro } from "@/lib/fetchSeguro";
+import { activarNavegacionEnter } from "@/lib/navegacion";
 
 interface AuthContextType {
   user: Usuario | null;
@@ -31,6 +34,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
+    fetch("/api/csrf").catch(() => {});
+    activarNavegacionEnter();
+  }, []);
+
+  useEffect(() => {
     let activo = true;
 
     fetch("/api/auth/me")
@@ -45,6 +53,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => { activo = false; };
   }, []);
+
+  useEffect(() => {
+    if (user?.role !== "cliente") return;
+
+    const MINUTOS = 15;
+    const MS = MINUTOS * 60 * 1000;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const cerrarPorInactividad = async () => {
+      await logout();
+      alertaAdvertencia(
+        `Tu sesión se cerró por inactividad (${MINUTOS} minutos).`,
+        "Sesión expirada"
+      );
+    };
+
+    const reiniciar = () => {
+      clearTimeout(timer);
+      timer = setTimeout(cerrarPorInactividad, MS);
+    };
+
+    const eventos: (keyof WindowEventMap)[] = [
+      "mousemove",
+      "mousedown",
+      "keydown",
+      "scroll",
+      "touchstart",
+    ];
+
+    eventos.forEach(e => window.addEventListener(e, reiniciar, { passive: true }));
+    reiniciar();
+
+    return () => {
+      clearTimeout(timer);
+      eventos.forEach(e => window.removeEventListener(e, reiniciar));
+    };
+  }, [user]);
 
   const login = async (doc: string, password: string) => {
     try {
@@ -74,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await fetchSeguro("/api/auth/logout", { method: "POST" });
     setUser(null);
     setCargando(false);
   };

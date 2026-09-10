@@ -42,7 +42,12 @@ const iconosRol: Record<string, string> = {
   cliente: "🙋",
 };
 
-export default function BarraLateral() {
+interface Props {
+  open?: boolean;
+  onClose?: () => void;
+}
+
+export default function BarraLateral({ open = false, onClose }: Props) {
   const { user, logout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
@@ -58,10 +63,13 @@ export default function BarraLateral() {
   };
 
   return (
-    <div style={{
-      width: 230, background: C.surface, borderRight: `1px solid ${C.border}`,
-      display: "flex", flexDirection: "column", minHeight: "100vh", flexShrink: 0,
-    }}>
+    <div
+      className={`sidebar${open ? " open" : ""}`}
+      style={{
+        width: 230, background: C.surface, borderRight: `1px solid ${C.border}`,
+        display: "flex", flexDirection: "column", minHeight: "100vh", flexShrink: 0,
+      }}
+    >
       <div style={{ padding: "24px 20px 20px", borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{
@@ -91,7 +99,7 @@ export default function BarraLateral() {
         {items.map(item => {
           const isActive = pathname === item.href;
           return (
-            <Link key={item.href} href={item.href} style={{
+            <Link key={item.href} href={item.href} onClick={() => onClose?.()} style={{
               display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px", borderRadius: 10,
               background: isActive ? `linear-gradient(135deg,${C.accent}22,${C.accent2}22)` : "transparent",
               border: isActive ? `1px solid ${C.accent}44` : "1px solid transparent",

@@ -38,8 +38,6 @@ export default function PerfilPage() {
     return <p style={{ color: C.sub }}>Cargando perfil…</p>;
   }
 
-  const vehiculo = perfil.vehiculos[0];
-
   return (
     <div>
       <h2 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 24, marginBottom: 24 }}>Mi Perfil</h2>
@@ -64,18 +62,20 @@ export default function PerfilPage() {
 
         <Tarjeta>
           <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 14 }}>Vehículos</h3>
-          {vehiculo ? (
-            <div style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ fontSize: 13, fontWeight: 700 }}>{vehiculo.placa}</span>
-                <Etiqueta label={vehiculo.tipo} color="blue" />
+          {perfil.vehiculos.length > 0 ? (
+            perfil.vehiculos.map(v => (
+              <div key={v.placa} style={{ padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>{v.placa}</span>
+                  <Etiqueta label={v.tipo} color="blue" />
+                </div>
+                <p style={{ color: C.sub, fontSize: 12, marginTop: 6 }}>
+                  {v.tipo === "mensual"
+                    ? `Contrato: ${v.contrato_inicio || "—"} → ${v.contrato_fin || "—"}`
+                    : `Puesto actual: ${v.puesto || "—"}`}
+                </p>
               </div>
-              <p style={{ color: C.sub, fontSize: 12, marginTop: 6 }}>
-                {vehiculo.tipo === "mensual"
-                  ? `Contrato: ${vehiculo.contrato_inicio || "—"} → ${vehiculo.contrato_fin || "—"}`
-                  : `Puesto actual: ${vehiculo.puesto || "—"}`}
-              </p>
-            </div>
+            ))
           ) : (
             <p style={{ color: C.sub, fontSize: 13 }}>No tiene vehículos registrados.</p>
           )}

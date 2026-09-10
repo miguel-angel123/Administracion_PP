@@ -1,3 +1,4 @@
+// Marca una sugerencia como leída. Cliente no puede cambiar estados.
 import { NextResponse } from "next/server";
 import { getSesion } from "@/lib/session";
 import { ensureSeed } from "@/lib/seed";
@@ -14,6 +15,7 @@ export async function PATCH(
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
+  // Solo personal interno puede marcar sugerencias como atendidas.
   if (sesion.role === "cliente") {
     return NextResponse.json({ error: "Prohibido" }, { status: 403 });
   }

@@ -15,7 +15,8 @@
     "next": "^15.5.18",
     "pg": "^8.13.1",
     "react": "^19.2.5",
-    "react-dom": "^19.2.5"
+    "react-dom": "^19.2.5",
+    "sweetalert2": "^11.26.25"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { C } from "@/lib/tema";
 import { Tarjeta, FilaFormulario, Boton, Estrellas, Etiqueta } from "@/lib/componentes";
 import { useAuth } from "@/lib/auth";
+import { fetchSeguro } from "@/lib/fetchSeguro";
 
 interface SugerenciaDB {
   id: number;
@@ -31,7 +32,7 @@ export default function SugerenciasPage() {
   const visible = sugerencias.filter(s => filter === "todas" || s.estado === filter);
 
   const marcarLeida = async (id: number) => {
-    await fetch(`/api/sugerencias/${id}`, {
+    await fetchSeguro(`/api/sugerencias/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ estado: "leída" }),
@@ -41,7 +42,7 @@ export default function SugerenciasPage() {
 
   const enviar = async () => {
     if (!form.texto.trim()) return;
-    await fetch("/api/sugerencias", {
+    await fetchSeguro("/api/sugerencias", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ texto: form.texto, resena: form.reseña }),
@@ -62,9 +63,11 @@ export default function SugerenciasPage() {
           <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 14 }}>
             {user.role === "cliente" ? "Enviar Sugerencia" : "Dejar Opinión / Comentario"}
           </h3>
-          <FilaFormulario label="Tu sugerencia"><textarea value={form.texto} onChange={e => setForm({ ...form, texto: e.target.value })} rows={4} placeholder="Escribe aquí tu sugerencia…" /></FilaFormulario>
-          <FilaFormulario label="Reseña"><Estrellas n={form.reseña} onChange={n => setForm({ ...form, reseña: n })} /></FilaFormulario>
-          <Boton onClick={enviar}>Enviar Sugerencia</Boton>
+          <div data-form-nav>
+            <FilaFormulario label="Tu sugerencia"><textarea value={form.texto} onChange={e => setForm({ ...form, texto: e.target.value })} rows={4} placeholder="Escribe aquí tu sugerencia…" /></FilaFormulario>
+            <FilaFormulario label="Reseña"><Estrellas n={form.reseña} onChange={n => setForm({ ...form, reseña: n })} /></FilaFormulario>
+            <Boton onClick={enviar} data-nav-submit>Enviar Sugerencia</Boton>
+          </div>
         </Tarjeta>
       )}
 

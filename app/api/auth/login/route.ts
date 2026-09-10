@@ -1,3 +1,4 @@
+// Endpoint de autenticación. Emite la cookie httpOnly con el JWT firmado.
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { ensureSeed } from "@/lib/seed";
@@ -7,10 +8,13 @@ import { registrarLog } from "@/lib/log";
 
 export async function POST(req: Request) {
   try {
+    // Garantiza que existan datos mínimos (roles, estados, usuarios demo) antes de autenticar.
     await ensureSeed();
 
     const { doc, password } = await req.json();
 
+    // Consulta al usuario junto con su rol y estado.
+    // Se filtra por no-eliminado y por estado distinto de "inactivo" para bloquear cuentas deshabilitadas.
     const result = await pool.query(
       `SELECT
          u.documento,
@@ -29,6 +33,7 @@ export async function POST(req: Request) {
       [Number(doc)]
     );
 
+    // Mensaje uniforme para no revelar si el documento existe o no (evita enumeración de usuarios).
     if (!result.rows.length) {
       return NextResponse.json(
         { ok: false, error: "Credenciales incorrectas" },
@@ -36,6 +41,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // Compara la contraseña en texto plano contra el hash almacenado.
     const passwordCorrecta = await bcrypt.compare(password, result.rows[0].hash);
 
     if (!passwordCorrecta) {
@@ -47,6 +53,8 @@ export async function POST(req: Request) {
 
     const userData = result.rows[0];
 
+    // Efecto colateral: al iniciar sesión, los empleados pasan automáticamente a "trabajando".
+    // Esto alimenta los indicadores del dashboard sin intervención manual.
     if (userData.role === "empleado") {
       await pool.query(
         `UPDATE usuarios
@@ -56,6 +64,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // Objeto público que se devuelve al cliente (nunca incluye hash).
     const user = {
       id: userData.documento,
       doc: String(userData.documento),
@@ -66,12 +75,16 @@ export async function POST(req: Request) {
       estado: userData.estado,
     };
 
+    // Firma del JWT con documento (subject) y rol.
     const token = await firmarToken(user.doc, user.role);
 
+    // Registro del evento de login en el historial del sistema.
     await registrarLog(user.doc, "LOGIN");
 
     const res = NextResponse.json({ ok: true, user });
 
+    // Cookie httpOnly: el navegador no puede leerla desde JS (mitiga XSS).
+    // sameSite lax permite navegación normal; secure solo en producción (HTTPS).
     res.cookies.set("token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -82,6 +95,7 @@ export async function POST(req: Request) {
 
     return res;
   } catch (e) {
+    // Cualquier fallo (parseo, BD, etc.) se reporta con un mensaje genérico y status 500.
     console.error("Error en POST /api/auth/login:", e);
     return NextResponse.json(
       { ok: false, error: "No se pudo conectar con la base de datos. Verifica DATABASE_URL y la conexión de red." },

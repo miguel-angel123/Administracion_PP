@@ -1,3 +1,4 @@
+// Indicadores del dashboard. Disponibles para gerente y empleado.
 import { NextResponse } from "next/server";
 import { getSesion } from "@/lib/session";
 import { ensureSeed } from "@/lib/seed";
@@ -15,6 +16,7 @@ export async function GET() {
 
   await ensureSeed();
 
+  // Ejecuta las dos consultas agregadas en paralelo para reducir latencia.
   const [indicadores, ingresosSemanales] = await Promise.all([
     estadisticasModel.obtenerIndicadores(),
     estadisticasModel.obtenerIngresosSemanales(),
@@ -22,13 +24,19 @@ export async function GET() {
 
   const mensuales = indicadores.mensuales || 0;
   const diarios = indicadores.diarios || 0;
+  const totalPuestos = indicadores.total_puestos || 0;
+  const puestosOcupados = indicadores.puestos_ocupados || 0;
+  const puestosDisponibles = Math.max(0, totalPuestos - puestosOcupados);
 
   return NextResponse.json({
     totalVehiculos: indicadores.total_vehiculos || 0,
+    // "Activos" se deriva: cualquier vehículo con contrato vigente o ticket abierto.
     activos: mensuales + diarios,
     mensuales,
     diarios,
-    puestosDisponibles: 100 - (indicadores.puestos_ocupados || 0),
+    totalPuestos,
+    puestosOcupados,
+    puestosDisponibles,
     ingresosSemanales,
   });
 }

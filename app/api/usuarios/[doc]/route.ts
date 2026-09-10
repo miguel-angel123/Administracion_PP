@@ -1,9 +1,11 @@
+// Edición de un empleado específico por documento. Solo gerente.
 import { NextResponse } from "next/server";
 import { getSesion } from "@/lib/session";
 import { ensureSeed } from "@/lib/seed";
 import * as usuariosModel from "@/lib/models/usuarios.model";
 import { ErrorDominio } from "@/lib/models/errores";
 import { registrarLog } from "@/lib/log";
+import { limpiarTexto, limpiarTelefono } from "@/lib/sanitizar";
 
 export async function PATCH(
   req: Request,
@@ -24,12 +26,12 @@ export async function PATCH(
 
   try {
     await usuariosModel.actualizarUsuario(Number(doc), {
-      nombre: body.nombre,
-      cargo: body.cargo,
-      telefono: body.telefono,
-      correo: body.correo,
-      password: body.password,
-      estado: body.estado,
+      nombre: body.nombre !== undefined ? limpiarTexto(body.nombre, 100) : undefined,
+      cargo: body.cargo !== undefined ? limpiarTexto(body.cargo, 50) : undefined,
+      telefono: body.telefono !== undefined ? limpiarTelefono(body.telefono) : undefined,
+      correo: body.correo !== undefined ? limpiarTexto(body.correo, 100) : undefined,
+      password: typeof body.password === "string" ? body.password : undefined,
+      estado: typeof body.estado === "string" ? body.estado : undefined,
     });
 
     await registrarLog(sesion.doc, `Editó empleado ${doc}`);

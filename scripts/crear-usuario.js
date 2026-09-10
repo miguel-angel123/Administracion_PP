@@ -1,4 +1,5 @@
 const { Pool } = require("pg");
+const bcrypt = require("bcryptjs");
 const readline = require("readline/promises");
 
 const rolesPermitidos = new Set(["gerente", "empleado", "cliente"]);
@@ -71,6 +72,14 @@ async function main() {
   }
 
   const interfaz = crearInterfaz();
+  let interfazCerrada = false;
+
+  const cerrarInterfaz = () => {
+    if (interfazCerrada) return;
+    interfaz.close();
+    interfazCerrada = true;
+  };
+
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: process.env.DATABASE_URL.includes("localhost")
@@ -88,14 +97,6 @@ async function main() {
     }
 
     const nombre = await preguntarObligatorio(interfaz, "Nombre: ");
-    const fechaNacimiento = await preguntarObligatorio(
-      interfaz,
-      "Fecha de nacimiento (AAAA-MM-DD): "
-    );
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaNacimiento)) {
-      throw new Error("La fecha debe tener el formato AAAA-MM-DD.");
-    }
-
     const telefono = await preguntarObligatorio(interfaz, "Teléfono: ");
     const correo = await preguntarObligatorio(interfaz, "Correo: ");
     const cargo = (await preguntar(interfaz, "Cargo (opcional): ")).trim() || null;
@@ -104,9 +105,12 @@ async function main() {
       throw new Error("El rol debe ser gerente, empleado o cliente.");
     }
 
-    interfaz.close();
+    cerrarInterfaz();
+
     const password = await preguntarPassword("Contraseña: ");
     if (!password) throw new Error("La contraseña no puede estar vacía.");
+
+    const passwordHash = await bcrypt.hash(password, 10);
 
     const cliente = await pool.connect();
     try {
@@ -117,15 +121,15 @@ async function main() {
 
       const resultado = await cliente.query(
         `INSERT INTO usuarios (
-           documento, estados_id_estado, roles_id_roles, nombre, fecha_nacimiento,
-           telefono, correo, genero, contraseña, cargo
+           documento, estados_id_estado, roles_id_roles, nombre,
+           telefono, correo, contraseña, cargo
          )
-         SELECT $1, e.id_estado, r.id_roles, $2, $3, $4, $5, 'Masculino', $6, $7
+         SELECT $1, e.id_estado, r.id_roles, $2, $3, $4, $5, $6
          FROM estados e
-         JOIN roles r ON r.nombre_rol = $8
+         JOIN roles r ON r.nombre_rol = $7
          WHERE e.nombre_estado = 'activo'
          RETURNING documento`,
-        [documento, nombre, fechaNacimiento, telefono, correo, password, cargo, rol]
+        [documento, nombre, telefono, correo, passwordHash, cargo, rol]
       );
 
       await cliente.query("COMMIT");
@@ -140,7 +144,7 @@ async function main() {
       cliente.release();
     }
   } finally {
-    interfaz.close();
+    cerrarInterfaz();
     await pool.end();
   }
 }

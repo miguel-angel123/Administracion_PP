@@ -1,5 +1,9 @@
+// Modelo de perfil. Devuelve datos del cliente que consulta: vehículos e historial.
 import pool from "@/lib/db";
 
+// Vehículos del cliente. Cada fila incluye:
+//   - contrato_inicio/fin si es mensual
+//   - puesto actual si es diario y tiene ticket abierto
 export async function obtenerVehiculosDeCliente(doc: number) {
   const { rows } = await pool.query(
     `SELECT
@@ -30,6 +34,7 @@ export async function obtenerVehiculosDeCliente(doc: number) {
   return rows;
 }
 
+// Últimos 10 tickets cerrados del cliente (historial de movimientos con valor).
 export async function obtenerHistorialCliente(doc: number) {
   const { rows } = await pool.query(
     `SELECT
