@@ -32,6 +32,12 @@ export const pool =
     keepAliveInitialDelayMillis: 10_000,
   });
 
+// Sin listener, un error en una conexión idle (p.ej. Neon cerrando el socket)
+// emite 'error' sin destino y tumba el proceso Node. Se absorbe y se loguea.
+pool.on("error", (err) => {
+  console.error("[db] error en conexión idle del pool:", err.message);
+});
+
 // El cacheo en global solo se mantiene fuera de producción: en producción
 // cada instancia serverless conserva su propio pool.
 if (process.env.NODE_ENV !== "production") globalDb.__pool = pool;

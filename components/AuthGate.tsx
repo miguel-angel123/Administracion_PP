@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import BarraLateral from "@/components/BarraLateral";
 import LoginPage from "@/components/LoginPage";
+import BannerConexion from "@/components/BannerConexion";
 import { C } from "@/lib/tema";
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
@@ -25,7 +26,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh" }}>
+    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+      {/* Global: un solo store, un solo banner. No aparece en login (arriba
+          hay return temprano) ni se monta dos veces por página. */}
+      <BannerConexion />
+
       <button
         type="button" className="menu-toggle" aria-label="Abrir menú" onClick={() => setMenuAbierto(true)}
         style={{background: C.surface,border: `1px solid ${C.border}`,color: C.text}}
@@ -41,7 +46,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
       <main
         className="layout-main"
-        style={{ flex: 1, padding: "32px 36px", overflowY: "auto", minHeight: "100vh" }}
+        style={{ flex: 1, padding: "32px 36px", overflowY: "auto", height: "100vh" }}
       >
         {children}
       </main>

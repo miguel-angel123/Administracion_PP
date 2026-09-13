@@ -4,7 +4,8 @@ import bcrypt from "bcryptjs";
 import { ensureSeed } from "@/lib/seed";
 import pool from "@/lib/db";
 import { firmarToken } from "@/lib/jwt";
-import { registrarLog } from "@/lib/log";
+import { registrarLog, LOG } from "@/lib/log";
+import { respuestaError } from "@/lib/erroresHttp";
 
 export async function POST(req: Request) {
   try {
@@ -79,7 +80,7 @@ export async function POST(req: Request) {
     const token = await firmarToken(user.doc, user.role);
 
     // Registro del evento de login en el historial del sistema.
-    await registrarLog(user.doc, "LOGIN");
+    await registrarLog(user.doc, LOG.LOGIN);
 
     const res = NextResponse.json({ ok: true, user });
 
@@ -95,11 +96,10 @@ export async function POST(req: Request) {
 
     return res;
   } catch (e) {
-    // Cualquier fallo (parseo, BD, etc.) se reporta con un mensaje genérico y status 500.
-    console.error("Error en POST /api/auth/login:", e);
-    return NextResponse.json(
-      { ok: false, error: "No se pudo conectar con la base de datos. Verifica DATABASE_URL y la conexión de red." },
-      { status: 500 }
-    );
+    // respuestaError clasifica timeout de Neon (→ 503) y deadlock (→ 409) por
+    // separado del resto (→ 500). lib/auth.tsx ya maneja ambos códigos.
+    // El prefijo aporta contexto propio del endpoint al log del servidor.
+    console.error("[auth/login]", e);
+    return respuestaError(e);
   }
 }

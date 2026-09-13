@@ -3,42 +3,43 @@ import { NextResponse } from "next/server";
 import { getSesion } from "@/lib/session";
 import { ensureSeed } from "@/lib/seed";
 import * as tarifasModel from "@/lib/models/tarifas.model";
-import { ErrorDominio } from "@/lib/models/errores";
+import { respuestaError } from "@/lib/erroresHttp";
 import { registrarLog } from "@/lib/log";
 
-export async function GET(req: Request) {
-  const sesion = await getSesion();
-  if (!sesion) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
+export async function GET() {
+  try {
+    const sesion = await getSesion();
+    if (!sesion) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
 
-  await ensureSeed();
+    await ensureSeed();
 
-  const { searchParams } = new URL(req.url);
-  // ?recurso=por-tipo → una fila por tarifa real (para la vista del cliente).
-  // Sin recurso → vista agregada por modalidad (usada en /estadisticas).
-  if (searchParams.get("recurso") === "por-tipo") {
+    // Única forma de listado: una fila por tarifa real (modalidad × tipo).
+    // La vista agregada por modalidad se eliminó junto con listarTarifasParaVista.
     return NextResponse.json(await tarifasModel.listarTarifasPorTipo());
+  } catch (e) {
+    return respuestaError(e);
   }
-
-  const tarifas = await tarifasModel.listarTarifasParaVista();
-  return NextResponse.json(tarifas);
 }
 
 export async function POST(req: Request) {
-  const sesion = await getSesion();
-  if (!sesion) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
-
-  // Administración de tarifas reservada al gerente.
-  if (sesion.role !== "gerente") {
-    return NextResponse.json({ error: "Solo el gerente puede administrar tarifas" }, { status: 403 });
-  }
-
-  await ensureSeed();
-
   try {
+    const sesion = await getSesion();
+    if (!sesion) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
+
+    // Administración de tarifas reservada al gerente.
+    if (sesion.role !== "gerente") {
+      return NextResponse.json(
+        { error: "Solo el gerente puede administrar tarifas" },
+        { status: 403 }
+      );
+    }
+
+    await ensureSeed();
+
     const body = await req.json();
     await tarifasModel.crearTarifa({
       tipoVehiculoId: body.tipoVehiculoId,
@@ -51,11 +52,7 @@ export async function POST(req: Request) {
     await registrarLog(sesion.doc, `Creó tarifa ${body.modalidad} para tipo ${body.tipoVehiculoId}`);
 
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    const status = e instanceof ErrorDominio ? e.status : 500;
-    return NextResponse.json(
-      { error: e.message ?? "Error inesperado" },
-      { status }
-    );
+  } catch (e) {
+    return respuestaError(e);
   }
 }

@@ -17,7 +17,12 @@ const globalSeed = globalThis as unknown as {
 // - ADD/DROP COLUMN IF EXISTS: no falla si ya está el estado final.
 // - Inserts con NOT EXISTS: garantizan datos base sin duplicar.
 // - Índices IF NOT EXISTS: aceleran los filtros/orden más frecuentes.
-// - Al final: sincroniza puestos.estado_puesto con la realidad (contratos + tickets).
+// (El recálculo de puestos se separó a MIGRACION_PUESTOS_SQL para poder
+//  envolverlo en una transacción puntual sin bloquear el resto del DDL.)
+//
+// OJO: este bloque es un template literal. Nunca introducir backticks en los
+// comentarios SQL: cierran el string y rompen la compilación. Los nombres de
+// columnas se citan sin comillas o con comillas simples.
 const MIGRACION_SQL = `
   ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS cargo VARCHAR(50);
 
@@ -65,26 +70,6 @@ const MIGRACION_SQL = `
   INSERT INTO tarifa(tipo_vehiculo, valor_hora)
   SELECT 'por_hora', 3000
   WHERE NOT EXISTS (SELECT 1 FROM tarifa WHERE tipo_vehiculo='por_hora');
-
-  -- Recalcula la bandera de ocupación en cada arranque para que nunca quede
-  -- desincronizada cuando un contrato nace sin puestos_id_puesto o un ticket
-  -- se cierra sin liberar el puesto.
-  UPDATE puestos SET estado_puesto = FALSE WHERE fecha_eliminado IS NULL;
-
-  UPDATE puestos p
-  SET estado_puesto = TRUE
-  WHERE EXISTS (
-    SELECT 1 FROM contratos c
-    WHERE c.puestos_id_puesto = p.id_puesto
-      AND c.fecha_eliminado IS NULL
-      AND c.fecha_fin > NOW()
-  )
-  OR EXISTS (
-    SELECT 1 FROM tickets t
-    WHERE t.puestos_id_puesto = p.id_puesto
-      AND t.fecha_salida IS NULL
-      AND t.fecha_eliminado IS NULL
-  );
 
   -- Catálogo de tipos de vehículo. Se crea aquí porque la tabla existía sólo
   -- cuando se levantaba la BD manualmente; en un reinicio limpio faltaba y las
@@ -148,12 +133,122 @@ const MIGRACION_SQL = `
     ON puestos(estado_puesto, fecha_eliminado);
 
   CREATE INDEX IF NOT EXISTS idx_usuarios_nombre ON usuarios(nombre);
+
+  -- Normaliza el estado de los vehículos diarios existentes. La columna
+  -- estados_id_estado es ahora la fuente de verdad de "está en el
+  -- parqueadero" para el listado y para los indicadores, pero cerrarTicket
+  -- históricamente no la bajaba al cobrar: un diario ya salido quedaba en
+  -- 'activo'. La lectura nueva confiaría en un dato stale. Se alinea una vez.
+  UPDATE vehiculos v
+  SET estados_id_estado = CASE
+    WHEN EXISTS (
+      SELECT 1 FROM tickets t
+      WHERE t.vehiculos_placa = v.placa
+        AND t.fecha_salida IS NULL
+        AND t.fecha_eliminado IS NULL
+    ) THEN (SELECT id_estado FROM estados WHERE nombre_estado = 'activo' LIMIT 1)
+    ELSE (SELECT id_estado FROM estados WHERE nombre_estado = 'inactivo' LIMIT 1)
+  END
+  WHERE v.fecha_eliminado IS NULL
+    AND v.tarifa_id_tarifa IN (
+      SELECT id_tarifa FROM tarifa WHERE tipo_vehiculo <> 'mensual'
+    );
+
+  -- Índice para el filtro por estado del listado de vehículos.
+  CREATE INDEX IF NOT EXISTS idx_vehiculos_estado
+    ON vehiculos(estados_id_estado, fecha_eliminado)
+    WHERE fecha_eliminado IS NULL;
+
+  -- Contador global para polling condicional. Se crea aquí (no en un script
+  -- aparte) porque el cliente sondea /api/version en cada arranque; si la
+  -- tabla falta, el endpoint devolvía 500 hasta que alguien corriera el SQL
+  -- a mano. El seed corre una vez por proceso y garantiza que exista.
+  CREATE TABLE IF NOT EXISTS sistema_version (
+    id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+    version BIGINT NOT NULL DEFAULT 1,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  INSERT INTO sistema_version (id) VALUES (TRUE)
+  ON CONFLICT (id) DO NOTHING;
+
+  CREATE OR REPLACE FUNCTION public.fn_marcar_version() RETURNS trigger
+  LANGUAGE plpgsql AS $fn$
+  BEGIN
+    UPDATE sistema_version
+       SET version = version + 1, updated_at = NOW()
+     WHERE id = TRUE;
+    RETURN NULL;
+  END;
+  $fn$;
+
+  -- FOR EACH STATEMENT: 1 incremento por sentencia, no por fila. Un
+  -- generate_series de 1000 puestos suma 1, no 1000.
+  --
+  -- Se omite toda tabla que todavía no exista: DROP TRIGGER ... ON <tabla>
+  -- resuelve el nombre de la tabla antes de comprobar el trigger, así que
+  -- IF EXISTS no protege contra una tabla ausente y el bloque entero aborta.
+  DO $do$
+  DECLARE t text;
+  BEGIN
+    FOREACH t IN ARRAY ARRAY[
+      'tickets','vehiculos','contratos','puestos',
+      'usuarios','tarifa','sugerencias','logs_sistema'
+    ] LOOP
+      IF to_regclass(t) IS NULL THEN CONTINUE; END IF;
+      EXECUTE format('DROP TRIGGER IF EXISTS tr_version_%I ON %I', t, t);
+      EXECUTE format(
+        'CREATE TRIGGER tr_version_%I
+         AFTER INSERT OR UPDATE OR DELETE ON %I
+         FOR EACH STATEMENT EXECUTE FUNCTION public.fn_marcar_version()',
+        t, t
+      );
+    END LOOP;
+  END $do$;
+`;
+
+// Recálculo de la bandera de ocupación. Se separó para envolverlo en su propia
+// transacción: sin ella, un corte entre el FALSE global y el TRUE puntual deja
+// la tabla de puestos mintiendo (todos libres) hasta el siguiente arranque.
+const MIGRACION_PUESTOS_SQL = `
+  UPDATE puestos SET estado_puesto = FALSE WHERE fecha_eliminado IS NULL;
+
+  UPDATE puestos p
+  SET estado_puesto = TRUE
+  WHERE EXISTS (
+    SELECT 1 FROM contratos c
+    WHERE c.puestos_id_puesto = p.id_puesto
+      AND c.fecha_eliminado IS NULL
+      AND c.fecha_fin > NOW()
+  )
+  OR EXISTS (
+    SELECT 1 FROM tickets t
+    WHERE t.puestos_id_puesto = p.id_puesto
+      AND t.fecha_salida IS NULL
+      AND t.fecha_eliminado IS NULL
+  );
 `;
 
 // Aplica el script una sola vez por proceso.
 async function aplicarMigraciones() {
   if (globalSeed.__migrado) return;
+
   await pool.query(MIGRACION_SQL);
+
+  // El recálculo toca filas de `puestos`; se aísla en una transacción para
+  // que sea atómico frente a arranques concurrentes en dev (hot-reload).
+  const cliente = await pool.connect();
+  try {
+    await cliente.query("BEGIN");
+    await cliente.query(MIGRACION_PUESTOS_SQL);
+    await cliente.query("COMMIT");
+  } catch (e) {
+    await cliente.query("ROLLBACK");
+    throw e;
+  } finally {
+    cliente.release();
+  }
+
   globalSeed.__migrado = true;
 }
 

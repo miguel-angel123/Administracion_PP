@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C } from "@/lib/tema";
 import { TarjetaEstadistica, Tarjeta, Etiqueta, Modal, FilaFormulario, Boton } from "@/lib/componentes";
@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { alertaError, alertaExito, alertaAdvertencia, confirmar } from "@/lib/alerta";
 import { esEnteroPositivo } from "@/lib/validacion";
 import { fetchSeguro } from "@/lib/fetchSeguro";
+import { useLiveData } from "@/lib/live/useLiveData";
 
 interface VehiculoDash {
   placa: string;
@@ -68,42 +69,41 @@ export default function Inicio() {
     valor: "",
   });
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [empleadosRes, sugerenciasRes, vehiculosRes] = await Promise.all([
-          fetch("/api/usuarios?rol=empleado&tamano=1").then(r => r.json()),
-          fetch("/api/sugerencias").then(r => r.json()),
-          fetch("/api/vehiculos?tamano=4").then(r => r.json()),
-        ]);
+  const load = useCallback(async () => {
+    try {
+      const [empleadosRes, sugerenciasRes, vehiculosRes] = await Promise.all([
+        fetch("/api/usuarios?rol=empleado&tamano=1").then(r => r.json()),
+        fetch("/api/sugerencias").then(r => r.json()),
+        fetch("/api/vehiculos?tamano=4").then(r => r.json()),
+      ]);
 
-        setEmpleadosCount(typeof empleadosRes?.total === "number" ? empleadosRes.total : 0);
+      setEmpleadosCount(typeof empleadosRes?.total === "number" ? empleadosRes.total : 0);
 
-        const s = Array.isArray(sugerenciasRes)
-          ? sugerenciasRes.map((s: any) => ({
-              usuario: s.usuario,
-              texto: s.texto,
-              estado: s.estado,
-            }))
-          : [];
+      const s = Array.isArray(sugerenciasRes)
+        ? sugerenciasRes.map((s: any) => ({
+            usuario: s.usuario,
+            texto: s.texto,
+            estado: s.estado,
+          }))
+        : [];
 
-        const v = Array.isArray(vehiculosRes?.datos)
-          ? vehiculosRes.datos.map((veh: any) => ({
-              placa: veh.placa,
-              nombre: veh.nombre,
-              tipo: veh.tipo,
-              estado: veh.estado,
-            }))
-          : [];
+      const v = Array.isArray(vehiculosRes?.datos)
+        ? vehiculosRes.datos.map((veh: any) => ({
+            placa: veh.placa,
+            nombre: veh.nombre,
+            tipo: veh.tipo,
+            estado: veh.estado,
+          }))
+        : [];
 
-        setSugerencias(s);
-        setVehiculos(v);
-      } catch (e) {
-        console.error("Error cargando dashboard", e);
-      }
+      setSugerencias(s);
+      setVehiculos(v);
+    } catch (e) {
+      console.error("Error cargando dashboard", e);
     }
-    load();
   }, []);
+
+  useLiveData(load, 10_000);
 
   useEffect(() => {
     if (user?.role !== "gerente") return;
@@ -143,6 +143,10 @@ export default function Inicio() {
   const mensuales = vehiculos.filter(v => v.tipo === "mensual" && v.estado === "activo").length;
   const pendientes = sugerencias.filter(s => s.estado === "pendiente").length;
 
+  const tarifasVisibles = nuevaTarifa.tipoVehiculoId
+    ? tarifas.filter(t => String(t.tipo_vehiculo_id) === String(nuevaTarifa.tipoVehiculoId))
+    : tarifas;
+
   const refrescarConfig = async () => {
     const [statsRes, tarifasRes] = await Promise.all([
       fetch("/api/estadisticas").then(r => r.json()),
@@ -178,6 +182,9 @@ export default function Inicio() {
   const etiquetaValor = (m: string) =>
     m === "por_hora" ? "Valor por hora" : m === "diario" ? "Valor por día" : "Valor por mes";
 
+  const etiquetaModalidad = (m: string) =>
+    m === "por_hora" ? "Por hora" : m === "diario" ? "Diario" : m === "mensual" ? "Mensual" : m;
+
   const extraerValor = (t: TarifaAdmin) =>
     t.modalidad === "por_hora" ? t.valor_hora : t.modalidad === "diario" ? t.valor_dia : t.valor_mes;
 
@@ -189,7 +196,6 @@ export default function Inicio() {
       valor: String(extraerValor(t) ?? ""),
     });
 
-    // Lleva el foco al formulario inferior del modal.
     requestAnimationFrame(() => {
       document.getElementById("form-tarifa")?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
@@ -215,11 +221,6 @@ export default function Inicio() {
       return;
     }
 
-    // El id a editar sale de dos fuentes:
-    //   1. El botón "Editar" (tarifaEditando).
-    //   2. Si no hay selección explícita, se busca una tarifa con la misma
-    //      combinación (tipo, modalidad) para editar en vez de crear.
-    //      Así el POST nunca choca con el índice único y no responde 409.
     let idEditar = tarifaEditando;
     if (!idEditar) {
       const existente = tarifas.find(t =>
@@ -229,8 +230,6 @@ export default function Inicio() {
       if (existente) idEditar = existente.id;
     }
 
-    // Solo se envía el campo correspondiente a la modalidad; los otros dos van en null
-    // para que al cambiar de modalidad no queden valores antiguos mezclados.
     const payload = {
       tipoVehiculoId: Number(nuevaTarifa.tipoVehiculoId),
       modalidad: nuevaTarifa.modalidad,
@@ -367,7 +366,7 @@ export default function Inicio() {
           onClose={() => { setModal(null); resetTarifa(); }}
         >
           <div style={{ marginBottom: 20 }}>
-            {tarifas.map(t => (
+            {tarifasVisibles.map(t => (
               <div
                 key={t.id}
                 style={{
@@ -379,7 +378,7 @@ export default function Inicio() {
                   <p style={{ fontSize: 13, fontWeight: 600 }}>
                     {t.tipo_vehiculo_icono} {t.tipo_vehiculo_nombre}
                     <span style={{ color: C.sub, fontWeight: 400, marginLeft: 8 }}>
-                      · {t.modalidad}
+                      · {etiquetaModalidad(t.modalidad)}
                     </span>
                   </p>
                   <p style={{ color: C.gold, fontWeight: 700, fontSize: 14, marginTop: 2 }}>
@@ -392,7 +391,7 @@ export default function Inicio() {
                 </div>
               </div>
             ))}
-            {tarifas.length === 0 && (
+            {tarifasVisibles.length === 0 && (
               <p style={{ color: C.sub, fontSize: 13, padding: "10px 0" }}>Sin tarifas configuradas.</p>
             )}
           </div>
@@ -409,7 +408,10 @@ export default function Inicio() {
           <FilaFormulario label="Tipo de vehículo">
             <select
               value={nuevaTarifa.tipoVehiculoId}
-              onChange={e => setNuevaTarifa({ ...nuevaTarifa, tipoVehiculoId: e.target.value })}
+              onChange={e => {
+                setNuevaTarifa({ ...nuevaTarifa, tipoVehiculoId: e.target.value });
+                setTarifaEditando(null);
+              }}
             >
               <option value="">Seleccione…</option>
               {tiposVeh.map(tv => (

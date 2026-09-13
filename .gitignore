@@ -35,4 +35,4 @@ next-env.d.ts
 # vercel
 .vercel
 *.core
-.aider*
+.aider*sql/mi_base_de_datos.sql

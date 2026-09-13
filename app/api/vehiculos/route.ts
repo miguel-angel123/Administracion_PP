@@ -10,71 +10,75 @@ import { getSesion } from "@/lib/session";
 import { ensureSeed } from "@/lib/seed";
 import * as vehiculosModel from "@/lib/models/vehiculos.model";
 import * as puestosModel from "@/lib/models/puestos.model";
-import { ErrorDominio } from "@/lib/models/errores";
+import { respuestaError } from "@/lib/erroresHttp";
 import { registrarLog } from "@/lib/log";
 import { limpiarPlaca, limpiarDocumento, limpiarTexto, limpiarTelefono } from "@/lib/sanitizar";
 
 export async function GET(req: Request) {
-  const sesion = await getSesion();
-  if (!sesion) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  try {
+    const sesion = await getSesion();
+    if (!sesion) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
+
+    await ensureSeed();
+
+    const { searchParams } = new URL(req.url);
+    const recurso = searchParams.get("recurso");
+
+    if (recurso === "tipos") {
+      const tipos = await vehiculosModel.listarTiposVehiculo();
+      return NextResponse.json(tipos);
+    }
+
+    if (recurso === "puestos") {
+      const puestos = await puestosModel.listarPuestos();
+      return NextResponse.json(puestos);
+    }
+
+    if (recurso === "papelera") {
+      const inactivos = await vehiculosModel.listarVehiculosInactivos();
+      return NextResponse.json(inactivos);
+    }
+
+    // Respuesta paginada: { datos, total, pagina, tamano, totalPaginas }.
+    const resultado = await vehiculosModel.listarVehiculos({
+      pagina: Number(searchParams.get("pagina") || 1),
+      tamano: Number(searchParams.get("tamano") || 20),
+      buscar: searchParams.get("buscar") || undefined,
+      orden: (searchParams.get("orden") as
+        | "placa"
+        | "nombre"
+        | "tipo"
+        | "estado"
+        | "ingreso"
+        | null) || undefined,
+      dir: (searchParams.get("dir") as "asc" | "desc" | null) || undefined,
+      filtro: searchParams.get("filtro") || "todos",
+    });
+
+    return NextResponse.json(resultado);
+  } catch (e) {
+    return respuestaError(e);
   }
-
-  await ensureSeed();
-
-  const { searchParams } = new URL(req.url);
-  const recurso = searchParams.get("recurso");
-
-  if (recurso === "tipos") {
-    const tipos = await vehiculosModel.listarTiposVehiculo();
-    return NextResponse.json(tipos);
-  }
-
-  if (recurso === "puestos") {
-    const puestos = await puestosModel.listarPuestos();
-    return NextResponse.json(puestos);
-  }
-
-  if (recurso === "papelera") {
-    const inactivos = await vehiculosModel.listarVehiculosInactivos();
-    return NextResponse.json(inactivos);
-  }
-
-  // Respuesta paginada: { datos, total, pagina, tamano, totalPaginas }.
-  const resultado = await vehiculosModel.listarVehiculos({
-    pagina: Number(searchParams.get("pagina") || 1),
-    tamano: Number(searchParams.get("tamano") || 20),
-    buscar: searchParams.get("buscar") || undefined,
-    orden: (searchParams.get("orden") as
-      | "placa"
-      | "nombre"
-      | "tipo"
-      | "estado"
-      | "ingreso"
-      | null) || undefined,
-    dir: (searchParams.get("dir") as "asc" | "desc" | null) || undefined,
-    filtro: searchParams.get("filtro") || "todos",
-  });
-
-  return NextResponse.json(resultado);
 }
 
 export async function POST(req: Request) {
-  const sesion = await getSesion();
-  if (!sesion) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
-
-  if (sesion.role !== "gerente") {
-    return NextResponse.json(
-      { error: "Solo el gerente puede registrar vehículos con contrato mensual" },
-      { status: 403 }
-    );
-  }
-
-  await ensureSeed();
-
   try {
+    const sesion = await getSesion();
+    if (!sesion) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
+
+    if (sesion.role !== "gerente") {
+      return NextResponse.json(
+        { error: "Solo el gerente puede registrar vehículos con contrato mensual" },
+        { status: 403 }
+      );
+    }
+
+    await ensureSeed();
+
     const body = await req.json();
     const resultado = await vehiculosModel.registrarVehiculoMensual({
       placa: limpiarPlaca(body.placa),
@@ -92,36 +96,34 @@ export async function POST(req: Request) {
     await registrarLog(sesion.doc, mensaje);
 
     return NextResponse.json(resultado);
-  } catch (e: any) {
-    const status = e instanceof ErrorDominio ? e.status : 500;
-    return NextResponse.json({ error: e.message ?? "Error inesperado" }, { status });
+  } catch (e) {
+    return respuestaError(e);
   }
 }
 
 export async function PUT(req: Request) {
-  const sesion = await getSesion();
-  if (!sesion) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
-
-  if (sesion.role !== "gerente") {
-    return NextResponse.json(
-      { error: "Solo el gerente puede ajustar los puestos" },
-      { status: 403 }
-    );
-  }
-
-  await ensureSeed();
-
   try {
+    const sesion = await getSesion();
+    if (!sesion) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
+
+    if (sesion.role !== "gerente") {
+      return NextResponse.json(
+        { error: "Solo el gerente puede ajustar los puestos" },
+        { status: 403 }
+      );
+    }
+
+    await ensureSeed();
+
     const { total } = await req.json();
     const resultado = await puestosModel.ajustarTotalPuestos(Number(total));
 
     await registrarLog(sesion.doc, `Ajustó total de puestos a ${resultado.total}`);
 
     return NextResponse.json({ ok: true, total: resultado.total });
-  } catch (e: any) {
-    const status = e instanceof ErrorDominio ? e.status : 500;
-    return NextResponse.json({ error: e.message ?? "Error inesperado" }, { status });
+  } catch (e) {
+    return respuestaError(e);
   }
 }

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { C } from "@/lib/tema";
 import { TarjetaEstadistica, Tarjeta } from "@/lib/componentes";
+import { useLiveData } from "@/lib/live/useLiveData";
 
 interface Estadisticas {
   totalVehiculos: number;
@@ -15,10 +16,28 @@ interface Estadisticas {
   ingresosSemanales: { dia: string; total: number }[];
 }
 
-interface Tarifa {
-  icon: string;
-  plan: string;
-  precio: string;
+interface TarifaPorTipo {
+  id: string;
+  modalidad: string;
+  tipo_vehiculo_id: string;
+  tipo_nombre: string;
+  tipo_icono: string;
+  valor_hora: number | null;
+  valor_dia: number | null;
+  valor_mes: number | null;
+}
+
+const ETIQUETA_MODALIDAD: Record<string, string> = {
+  por_hora: "Por hora",
+  diario: "Diario",
+  mensual: "Mensual",
+};
+
+function valorDeTarifa(t: TarifaPorTipo): number | null {
+  if (t.modalidad === "por_hora") return t.valor_hora;
+  if (t.modalidad === "diario") return t.valor_dia;
+  if (t.modalidad === "mensual") return t.valor_mes;
+  return null;
 }
 
 export default function EstadisticasPage() {
@@ -33,36 +52,35 @@ export default function EstadisticasPage() {
     ingresosSemanales: [],
   });
 
-  const [tarifas, setTarifas] = useState<Tarifa[]>([]);
+  const [tarifas, setTarifas] = useState<TarifaPorTipo[]>([]);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [statsRes, tarifasRes] = await Promise.all([
-          fetch("/api/estadisticas").then(r => r.json()),
-          fetch("/api/tarifas").then(r => r.json()),
-        ]);
+  const load = useCallback(async () => {
+    try {
+      const [statsRes, tarifasRes] = await Promise.all([
+        fetch("/api/estadisticas").then(r => r.json()),
+        fetch("/api/tarifas").then(r => r.json()),
+      ]);
 
-        setStats({
-          totalVehiculos: statsRes.totalVehiculos ?? 0,
-          activos: statsRes.activos ?? 0,
-          mensuales: statsRes.mensuales ?? 0,
-          diarios: statsRes.diarios ?? 0,
-          totalPuestos: statsRes.totalPuestos ?? 0,
-          puestosOcupados: statsRes.puestosOcupados ?? 0,
-          puestosDisponibles: statsRes.puestosDisponibles ?? 0,
-          ingresosSemanales: Array.isArray(statsRes.ingresosSemanales)
-            ? statsRes.ingresosSemanales
-            : [],
-        });
+      setStats({
+        totalVehiculos: statsRes.totalVehiculos ?? 0,
+        activos: statsRes.activos ?? 0,
+        mensuales: statsRes.mensuales ?? 0,
+        diarios: statsRes.diarios ?? 0,
+        totalPuestos: statsRes.totalPuestos ?? 0,
+        puestosOcupados: statsRes.puestosOcupados ?? 0,
+        puestosDisponibles: statsRes.puestosDisponibles ?? 0,
+        ingresosSemanales: Array.isArray(statsRes.ingresosSemanales)
+          ? statsRes.ingresosSemanales
+          : [],
+      });
 
-        if (Array.isArray(tarifasRes)) setTarifas(tarifasRes);
-      } catch {
-        // Mantiene valores iniciales
-      }
+      if (Array.isArray(tarifasRes)) setTarifas(tarifasRes);
+    } catch {
+      // Mantiene valores iniciales
     }
-    load();
   }, []);
+
+  useLiveData(load, 15_000);
 
   const dias = stats.ingresosSemanales.map(d => d.dia);
   const data = stats.ingresosSemanales.map(d => d.total);
@@ -72,7 +90,6 @@ export default function EstadisticasPage() {
     <div>
       <div style={{ marginBottom: 24 }}>
         <h2 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 24 }}>Módulo Estadísticas</h2>
-        <p style={{ color: C.sub, fontSize: 14 }}>RF 2.8 · RF 3.5</p>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 14, marginBottom: 24 }}>
@@ -97,16 +114,25 @@ export default function EstadisticasPage() {
         </Tarjeta>
         <Tarjeta>
           <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 16 }}>Tarifas vigentes</h3>
-          {tarifas.length > 0 ? (
-            tarifas.map(t => (
-              <div key={t.plan} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-                <span style={{ fontSize: 14 }}>{t.icon} {t.plan}</span>
-                <span style={{ fontWeight: 700, color: C.gold, fontSize: 14 }}>{t.precio}</span>
-              </div>
-            ))
-          ) : (
-            <p style={{ color: C.sub, fontSize: 13 }}>Cargando tarifas…</p>
-          )}
+          <div style={{ maxHeight: 220, overflowY: "auto" }}>
+            {tarifas.length > 0 ? (
+              tarifas.map(t => {
+                const valor = valorDeTarifa(t);
+                return (
+                  <div key={t.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+                    <span style={{ fontSize: 14 }}>
+                      {t.tipo_icono} {t.tipo_nombre} — {ETIQUETA_MODALIDAD[t.modalidad] ?? t.modalidad}
+                    </span>
+                    <span style={{ fontWeight: 700, color: C.gold, fontSize: 14 }}>
+                      {valor != null ? `$${valor.toLocaleString("es-CO")}` : "—"}
+                    </span>
+                  </div>
+                );
+              })
+            ) : (
+              <p style={{ color: C.sub, fontSize: 13 }}>Cargando tarifas…</p>
+            )}
+          </div>
           <div style={{ marginTop: 14 }}>
             <p style={{ fontSize: 12, color: C.sub }}>Espacios disponibles</p>
             <div style={{ marginTop: 8, background: C.surface, borderRadius: 8, height: 12, overflow: "hidden" }}>

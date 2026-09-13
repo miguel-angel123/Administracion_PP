@@ -8,6 +8,7 @@ import { alertaError, alertaExito, alertaAdvertencia, confirmar } from "@/lib/al
 import { esPlacaValida, esDocumentoValido, esTelefonoValido, sinAngular } from "@/lib/validacion";
 import { fetchSeguro } from "@/lib/fetchSeguro";
 import { useDebounce } from "@/lib/useDebounce";
+import { useLiveData } from "@/lib/live/useLiveData";
 
 interface VehiculoDB {
   placa: string;
@@ -88,10 +89,16 @@ export default function VehiculosPage() {
     if (Array.isArray(data)) setInactivos(data);
   };
 
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => { loadPuestos(); loadInactivos(); }, []);
+  useLiveData(load, 8000);
+  useEffect(() => {
+    loadPuestos();
+    // La papelera solo la consume el gerente: el endpoint no está restringido
+    // por rol, así que la UI evita el fetch innecesario para el empleado.
+    if (canInactivate) loadInactivos();
+    // canInactivate deriva de user?.role, que no cambia dentro de una sesión.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Puestos libres + el actual (para poder verlo seleccionado sin forzar cambio).
   const puestosLibres = puestos.filter(p =>
     !p.estado_puesto || String(p.numero_puesto) === String(form.puesto)
   );
@@ -150,13 +157,11 @@ export default function VehiculosPage() {
       }
       alertaExito("Vehículo registrado.");
     } else {
-      // Validación específica de edición.
       if (!sinAngular(form.nombre || "")) {
         alertaAdvertencia("El nombre contiene caracteres no permitidos (< >)");
         return;
       }
 
-      // En edición se envían los campos editables: estado, color, nombre y puesto.
       const putBody: Record<string, unknown> = {
         estado: form.estado || "activo",
         color: form.color || "",
@@ -215,7 +220,7 @@ export default function VehiculosPage() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <div>
           <h2 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 24 }}>Módulo Vehículos</h2>
-          <p style={{ color: C.sub, fontSize: 14 }}>RF 2.2 · RF 2.3 · RF 3.2 — {total} registros</p>
+          <p style={{ color: C.sub, fontSize: 14 }}>— {total} registros</p>
         </div>
         {canCreate && <Boton onClick={openCreate}>+ Registrar Vehículo</Boton>}
       </div>
@@ -265,26 +270,28 @@ export default function VehiculosPage() {
         </div>
       </Tarjeta>
 
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-        <button
-          onClick={async () => { await loadInactivos(); setPapeleraAbierta(true); }}
-          title="Vehículos inactivados con contrato"
-          style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "10px 16px", borderRadius: 10,
-            background: C.surface, border: `1px solid ${C.border}`,
-            color: C.sub, fontSize: 13, cursor: "pointer",
-          }}
-        >
-          🗑️ Vehículos inactivados
-          {inactivos.length > 0 && (
-            <span style={{
-              background: C.red, color: "#fff", borderRadius: 99,
-              padding: "1px 8px", fontSize: 11, fontWeight: 700,
-            }}>{inactivos.length}</span>
-          )}
-        </button>
-      </div>
+      {canInactivate && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+          <button
+            onClick={async () => { await loadInactivos(); setPapeleraAbierta(true); }}
+            title="Vehículos inactivados con contrato"
+            style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "10px 16px", borderRadius: 10,
+              background: C.surface, border: `1px solid ${C.border}`,
+              color: C.sub, fontSize: 13, cursor: "pointer",
+            }}
+          >
+            🗑️ Vehículos inactivados
+            {inactivos.length > 0 && (
+              <span style={{
+                background: C.red, color: "#fff", borderRadius: 99,
+                padding: "1px 8px", fontSize: 11, fontWeight: 700,
+              }}>{inactivos.length}</span>
+            )}
+          </button>
+        </div>
+      )}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
         <span style={{ fontSize: 13, color: C.sub }}>
@@ -363,10 +370,39 @@ export default function VehiculosPage() {
 
       {modal === "view" && selected && (
         <Modal title="Detalle del Vehículo" onClose={() => setModal(null)}>
-          {[["Placa", selected.placa], ["Propietario", selected.nombre], ["Tipo", selected.tipo], ["Puesto", selected.puesto || "—"], ["Estado", selected.estado || "activo"]].map(([k, v]) => (
-            <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+          {([
+            // Cliente
+            ["Propietario", selected.nombre],
+            ["Documento", selected.doc || "—"],
+            ["Teléfono", selected.telefono || "—"],
+            ["Correo", selected.correo || "—"],
+            // Vehículo
+            ["Placa", selected.placa],
+            ["Tipo", selected.tipo],
+            ["Color", selected.color || "—"],
+            ["Estado", selected.estado || "activo"],
+            // Contrato (mensual) o Ticket (diario): mismas columnas, etiqueta según tipo
+            ["Puesto", selected.puesto || "—"],
+            [
+              selected.tipo === "mensual" ? "Inicio contrato" : "Ingreso",
+              selected.ingreso || "—",
+            ],
+            [
+              selected.tipo === "mensual" ? "Fin contrato" : "Salida",
+              selected.salida || "—",
+            ],
+          ] as [string, string][]).map(([k, v]) => (
+            <div
+              key={k}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "8px 0",
+                borderBottom: `1px solid ${C.border}`,
+              }}
+            >
               <span style={{ color: C.sub, fontSize: 13 }}>{k}</span>
-              <span style={{ fontWeight: 600, fontSize: 13 }}>{v}</span>
+              <span style={{ fontWeight: 600, fontSize: 13, textAlign: "right", marginLeft: 12 }}>{v}</span>
             </div>
           ))}
         </Modal>

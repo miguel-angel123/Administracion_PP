@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { getSesion } from "@/lib/session";
 import { ensureSeed } from "@/lib/seed";
 import * as vehiculosModel from "@/lib/models/vehiculos.model";
-import { ErrorDominio } from "@/lib/models/errores";
+import { respuestaError } from "@/lib/erroresHttp";
 import { registrarLog } from "@/lib/log";
 import { limpiarTexto } from "@/lib/sanitizar";
 
@@ -14,37 +14,41 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ placa: string }> }
 ) {
-  const sesion = await getSesion();
-  if (!sesion) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  try {
+    const sesion = await getSesion();
+    if (!sesion) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
+
+    await ensureSeed();
+    const { placa } = await params;
+
+    const resultado = await vehiculosModel.obtenerVehiculoPorPlaca(placa);
+
+    return NextResponse.json(resultado);
+  } catch (e) {
+    return respuestaError(e);
   }
-
-  await ensureSeed();
-  const { placa } = await params;
-
-  const resultado = await vehiculosModel.obtenerVehiculoPorPlaca(placa);
-
-  return NextResponse.json(resultado);
 }
 
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ placa: string }> }
 ) {
-  const sesion = await getSesion();
-  if (!sesion) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
-
-  if (sesion.role !== "gerente") {
-    return NextResponse.json({ error: "Prohibido" }, { status: 403 });
-  }
-
-  await ensureSeed();
-  const { placa } = await params;
-  const body = await req.json();
-
   try {
+    const sesion = await getSesion();
+    if (!sesion) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
+
+    if (sesion.role !== "gerente") {
+      return NextResponse.json({ error: "Prohibido" }, { status: 403 });
+    }
+
+    await ensureSeed();
+    const { placa } = await params;
+    const body = await req.json();
+
     // PATCH parcial: puede llegar solo estado, solo color, solo nombre, o solo puestosIdPuesto.
     await vehiculosModel.actualizarVehiculo(placa, {
       estado: typeof body.estado === "string" ? body.estado : undefined,
@@ -56,12 +60,8 @@ export async function PATCH(
     await registrarLog(sesion.doc, `Editó vehículo ${placa}`);
 
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    const status = e instanceof ErrorDominio ? e.status : 500;
-    return NextResponse.json(
-      { error: e.message ?? "Error inesperado" },
-      { status }
-    );
+  } catch (e) {
+    return respuestaError(e);
   }
 }
 
@@ -69,28 +69,24 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ placa: string }> }
 ) {
-  const sesion = await getSesion();
-  if (!sesion) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
-
-  if (sesion.role !== "gerente") {
-    return NextResponse.json({ error: "Prohibido" }, { status: 403 });
-  }
-
-  await ensureSeed();
-  const { placa } = await params;
-
   try {
+    const sesion = await getSesion();
+    if (!sesion) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
+
+    if (sesion.role !== "gerente") {
+      return NextResponse.json({ error: "Prohibido" }, { status: 403 });
+    }
+
+    await ensureSeed();
+    const { placa } = await params;
+
     // Borrado lógico: se conserva el historial pero el vehículo deja de aparecer.
     await vehiculosModel.eliminarVehiculoSoft(placa);
     await registrarLog(sesion.doc, `Eliminó vehículo ${placa}`);
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    const status = e instanceof ErrorDominio ? e.status : 500;
-    return NextResponse.json(
-      { error: e.message ?? "Error inesperado" },
-      { status }
-    );
+  } catch (e) {
+    return respuestaError(e);
   }
 }

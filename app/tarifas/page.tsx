@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { C } from "@/lib/tema";
 import { Tarjeta } from "@/lib/componentes";
+import { useLiveData } from "@/lib/live/useLiveData";
 
 interface Tipo {
   id: string;
@@ -21,42 +22,42 @@ interface Tarifa {
   valor_mes: number | null;
 }
 
-// Icono por modalidad (el tipo de vehículo se muestra aparte como subtítulo).
 const iconoPorModalidad = (m: string) =>
   m === "por_hora" ? "🕐" : m === "diario" ? "🗓️" : "📅";
+
+const etiquetaModalidad = (m: string) =>
+  m === "por_hora" ? "Por hora" : m === "diario" ? "Diario" : m === "mensual" ? "Mensual" : m;
 
 export default function TarifasPage() {
   const [tipos, setTipos] = useState<Tipo[]>([]);
   const [tarifas, setTarifas] = useState<Tarifa[]>([]);
   const [tipoSeleccionado, setTipoSeleccionado] = useState<string>("");
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [tiposRes, tarifasRes] = await Promise.all([
-          fetch("/api/vehiculos?recurso=tipos").then(r => r.json()),
-          fetch("/api/tarifas?recurso=por-tipo").then(r => r.json()),
-        ]);
-        if (Array.isArray(tiposRes)) {
-          setTipos(tiposRes);
-          // Preselecciona el primero para no dejar la vista vacía al entrar.
-          if (tiposRes.length > 0) setTipoSeleccionado(tiposRes[0].id);
-        }
-        if (Array.isArray(tarifasRes)) setTarifas(tarifasRes);
-      } catch {
-        // deja los estados iniciales
+  const load = useCallback(async () => {
+    try {
+      const [tiposRes, tarifasRes] = await Promise.all([
+        fetch("/api/vehiculos?recurso=tipos").then(r => r.json()),
+        fetch("/api/tarifas").then(r => r.json()),
+      ]);
+      if (Array.isArray(tiposRes)) {
+        setTipos(tiposRes);
+        // Preselección de la primera opción: aplicada una sola vez, para que
+        // el polling no resetee la elección del usuario.
+        setTipoSeleccionado(prev => prev || (tiposRes.length > 0 ? tiposRes[0].id : ""));
       }
+      if (Array.isArray(tarifasRes)) setTarifas(tarifasRes);
+    } catch {
+      // deja los estados iniciales
     }
-    load();
   }, []);
 
-  // Filtra por tipo. Con "" se muestran todas las tarifas.
+  useLiveData(load, 30_000);
+
   const tarifasFiltradas = useMemo(() => {
     if (!tipoSeleccionado) return tarifas;
     return tarifas.filter(t => String(t.tipo_vehiculo_id) === String(tipoSeleccionado));
   }, [tarifas, tipoSeleccionado]);
 
-  // Solo se pinta el valor correspondiente a la modalidad de esa fila.
   const precio = (t: Tarifa) => {
     const valor =
       t.modalidad === "por_hora" ? t.valor_hora
@@ -97,8 +98,8 @@ export default function TarifasPage() {
               key={t.id}
               style={{
                 textAlign: "center",
-                overflow: "hidden",   // evita que un precio largo se salga de la tarjeta
-                minWidth: 0,           // permite que el grid respete el ancho mínimo
+                overflow: "hidden",
+                minWidth: 0,
               }}
             >
               <div style={{ fontSize: 40, marginBottom: 12 }}>
@@ -111,7 +112,7 @@ export default function TarifasPage() {
                 fontSize: 20,
                 textTransform: "capitalize",
               }}>
-                {t.modalidad.replace("_", " ")}
+                {etiquetaModalidad(t.modalidad)}
               </h3>
 
               <p style={{ color: C.sub, fontSize: 12, marginTop: 2 }}>
@@ -125,7 +126,6 @@ export default function TarifasPage() {
                   fontSize: 28,
                   color: C.gold,
                   margin: "10px 0 4px",
-                  // Tres reglas para que el precio nunca desborde la tarjeta.
                   whiteSpace: "nowrap",
                   overflow: "hidden",
                   textOverflow: "ellipsis",

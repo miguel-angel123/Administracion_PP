@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { alertaAdvertencia } from "@/lib/alerta";
 import { fetchSeguro } from "@/lib/fetchSeguro";
 import { activarNavegacionEnter } from "@/lib/navegacion";
@@ -41,18 +41,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let activo = true;
 
-    fetch("/api/auth/me")
-      .then(res => res.json())
-      .then(data => {
-        if (activo && data.ok) setUser(data.user);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (activo) setCargando(false);
-      });
+    async function hidratar() {
+      // Hasta 3 intentos. Sólo se agota el bucle con 503/red caída; 401 y 200
+      // cortan el ciclo de inmediato.
+      for (let intento = 0; intento < 3; intento++) {
+        try {
+          const res = await fetch("/api/auth/me");
 
+          if (res.status === 401) {
+            // Sesión inválida o inexistente: no reintentar.
+            if (activo) { setUser(null); setCargando(false); }
+            return;
+          }
+
+          if (res.status === 503) {
+            // Neon cold start. Backoff corto y reintentar.
+            if (intento < 2) {
+              await new Promise(r => setTimeout(r, 1000 * (intento + 1)));
+              continue;
+            }
+            // Reintentos agotados: se deja usuario en null y cargando en false
+            // para no colgar el AuthGate indefinidamente.
+            if (activo) { setUser(null); setCargando(false); }
+            return;
+          }
+
+          if (!res.ok) {
+            // 4xx/5xx no clasificados: sin sesión, sin reintento.
+            if (activo) { setUser(null); setCargando(false); }
+            return;
+          }
+
+          const data = await res.json();
+          if (activo) {
+            if (data.ok) setUser(data.user);
+            setCargando(false);
+          }
+          return;
+        } catch {
+          // Fallo de red (fetch lanza). Backoff y reintentar; si es el último
+          // intento, se cierra la carga sin usuario.
+          if (intento < 2) {
+            await new Promise(r => setTimeout(r, 1000 * (intento + 1)));
+            continue;
+          }
+          if (activo) { setUser(null); setCargando(false); }
+          return;
+        }
+      }
+    }
+
+    hidratar();
     return () => { activo = false; };
   }, []);
+
+  // Estable para que los efectos que lo referencian no re-suscriban en cada render.
+  const logout = useCallback(async () => {
+    await fetchSeguro("/api/auth/logout", { method: "POST" });
+    setUser(null);
+    setCargando(false);
+  }, []);
+
+  // Cualquier 401 en cualquier fetch (clienteFetch lo detecta) dispara este
+  // evento. Un solo lugar cierra sesión; el AuthGate, al ver user=null,
+  // renderiza LoginPage sin router.replace explícito.
+  useEffect(() => {
+    const onExpira = () => { void logout(); };
+    window.addEventListener("sesion-expirada", onExpira);
+    return () => window.removeEventListener("sesion-expirada", onExpira);
+  }, [logout]);
 
   useEffect(() => {
     if (user?.role !== "cliente") return;
@@ -89,7 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearTimeout(timer);
       eventos.forEach(e => window.removeEventListener(e, reiniciar));
     };
-  }, [user]);
+  }, [user, logout]);
 
   const login = async (doc: string, password: string) => {
     try {
@@ -116,12 +173,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setCargando(false);
       return { ok: false, error: "Error de conexión. Intenta de nuevo." };
     }
-  };
-
-  const logout = async () => {
-    await fetchSeguro("/api/auth/logout", { method: "POST" });
-    setUser(null);
-    setCargando(false);
   };
 
   return (

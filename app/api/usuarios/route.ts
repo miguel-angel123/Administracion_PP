@@ -3,25 +3,25 @@ import { NextResponse } from "next/server";
 import { getSesion } from "@/lib/session";
 import { ensureSeed } from "@/lib/seed";
 import * as usuariosModel from "@/lib/models/usuarios.model";
-import { ErrorDominio } from "@/lib/models/errores";
+import { respuestaError } from "@/lib/erroresHttp";
 import { registrarLog } from "@/lib/log";
 import { limpiarTexto, limpiarDocumento, limpiarTelefono } from "@/lib/sanitizar";
 
 export async function GET(req: Request) {
-  const sesion = await getSesion();
-  if (!sesion) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
-
-  if (sesion.role !== "gerente" && sesion.role !== "empleado") {
-    return NextResponse.json({ error: "Prohibido" }, { status: 403 });
-  }
-
-  await ensureSeed();
-  const { searchParams } = new URL(req.url);
-  const rol = searchParams.get("rol") || "empleado";
-
   try {
+    const sesion = await getSesion();
+    if (!sesion) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
+
+    if (sesion.role !== "gerente" && sesion.role !== "empleado") {
+      return NextResponse.json({ error: "Prohibido" }, { status: 403 });
+    }
+
+    await ensureSeed();
+    const { searchParams } = new URL(req.url);
+    const rol = searchParams.get("rol") || "empleado";
+
     // Respuesta paginada: { datos, total, pagina, tamano, totalPaginas }.
     const resultado = await usuariosModel.listarUsuariosPorRol(rol, {
       pagina: Number(searchParams.get("pagina") || 1),
@@ -36,28 +36,24 @@ export async function GET(req: Request) {
     });
 
     return NextResponse.json(resultado);
-  } catch (e: any) {
-    const status = e instanceof ErrorDominio ? e.status : 500;
-    return NextResponse.json(
-      { error: e.message ?? "Error inesperado" },
-      { status }
-    );
+  } catch (e) {
+    return respuestaError(e);
   }
 }
 
 export async function POST(req: Request) {
-  const sesion = await getSesion();
-  if (!sesion) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
-
-  if (sesion.role !== "gerente") {
-    return NextResponse.json({ error: "Prohibido" }, { status: 403 });
-  }
-
-  await ensureSeed();
-
   try {
+    const sesion = await getSesion();
+    if (!sesion) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
+
+    if (sesion.role !== "gerente") {
+      return NextResponse.json({ error: "Prohibido" }, { status: 403 });
+    }
+
+    await ensureSeed();
+
     const body = await req.json();
     const resultado = await usuariosModel.crearEmpleado({
       doc: Number(limpiarDocumento(body.doc)),
@@ -72,11 +68,7 @@ export async function POST(req: Request) {
     await registrarLog(sesion.doc, `Registró empleado ${body.nombre}`);
 
     return NextResponse.json(resultado);
-  } catch (e: any) {
-    const status = e instanceof ErrorDominio ? e.status : 500;
-    return NextResponse.json(
-      { error: e.message ?? "Error inesperado" },
-      { status }
-    );
+  } catch (e) {
+    return respuestaError(e);
   }
 }

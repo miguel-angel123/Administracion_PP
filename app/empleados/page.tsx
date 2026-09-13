@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { C } from "@/lib/tema";
 import { Boton, Tarjeta, Etiqueta, Modal, FilaFormulario } from "@/lib/componentes";
 import { useAuth } from "@/lib/auth";
@@ -8,6 +8,7 @@ import { alertaError, alertaExito, alertaAdvertencia, confirmar } from "@/lib/al
 import { esDocumentoValido, esTelefonoValido, esCorreoValido, sinAngular } from "@/lib/validacion";
 import { fetchSeguro } from "@/lib/fetchSeguro";
 import { useDebounce } from "@/lib/useDebounce";
+import { useLiveData } from "@/lib/live/useLiveData";
 
 interface EmpleadoDB {
   doc: string;
@@ -55,7 +56,7 @@ export default function EmpleadosPage() {
     setTotalPaginas(data.totalPaginas ?? 1);
   }, [pagina, searchDebounced]);
 
-  useEffect(() => { load(); }, [load]);
+  useLiveData(load, 20_000);
 
   const cambiarBusqueda = (v: string) => { setSearch(v); setPagina(1); };
 
@@ -149,7 +150,7 @@ export default function EmpleadosPage() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <div>
           <h2 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 24 }}>Módulo Empleados</h2>
-          <p style={{ color: C.sub, fontSize: 14 }}>RF 2.4 · RF 2.5 · RF 3.0 — {total} registros</p>
+          <p style={{ color: C.sub, fontSize: 14 }}>— {total} registros</p>
         </div>
         {user?.role === "gerente" && <Boton onClick={openCreate}>+ Nuevo Empleado</Boton>}
       </div>

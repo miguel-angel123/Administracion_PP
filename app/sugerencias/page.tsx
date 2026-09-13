@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { C } from "@/lib/tema";
 import { Tarjeta, FilaFormulario, Boton, Estrellas, Etiqueta } from "@/lib/componentes";
 import { useAuth } from "@/lib/auth";
 import { fetchSeguro } from "@/lib/fetchSeguro";
+import { useLiveData } from "@/lib/live/useLiveData";
 
 interface SugerenciaDB {
   id: number;
+  doc: string;
   usuario: string;
   fecha: string;
   texto: string;
@@ -21,15 +23,22 @@ export default function SugerenciasPage() {
   const [form, setForm] = useState({ texto: "", reseña: 0 });
   const [filter, setFilter] = useState("todas");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const res = await fetch("/api/sugerencias");
     const data = await res.json();
     setSugerencias(data);
-  };
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useLiveData(load, 20_000);
 
-  const visible = sugerencias.filter(s => filter === "todas" || s.estado === filter);
+  const esCliente = user?.role === "cliente";
+
+  // El backend ya filtra por documento cuando el rol es cliente. Este filtro
+  // en frontend es defensa en profundidad: si por cualquier motivo la respuesta
+  // trajera más filas, el usuario solo ve las propias.
+  const visible = sugerencias
+    .filter(s => !esCliente || s.doc === String(user?.doc))
+    .filter(s => filter === "todas" || s.estado === filter);
 
   const marcarLeida = async (id: number) => {
     await fetchSeguro(`/api/sugerencias/${id}`, {
@@ -55,7 +64,6 @@ export default function SugerenciasPage() {
     <div>
       <div style={{ marginBottom: 24 }}>
         <h2 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 24 }}>Módulo Sugerencias</h2>
-        <p style={{ color: C.sub, fontSize: 14 }}>RF 2.6 · RF 3.4</p>
       </div>
 
       {user && (

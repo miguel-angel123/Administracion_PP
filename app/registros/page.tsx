@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { C } from "@/lib/tema";
 import { Tarjeta, Etiqueta, Boton } from "@/lib/componentes";
 import { useDebounce } from "@/lib/useDebounce";
+import { useLiveData } from "@/lib/live/useLiveData";
 
 interface LogEntry {
   id: number;
@@ -37,8 +38,7 @@ export default function RegistrosPage() {
 
   const searchDebounced = useDebounce(search, 300);
 
-  // Carga una página de logs con los filtros vigentes.
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const params = new URLSearchParams({
         pagina: String(pagina),
@@ -60,11 +60,10 @@ export default function RegistrosPage() {
     } catch {
       setLogs([]);
     }
-  };
+  }, [pagina, desde, hasta, orden, dir, searchDebounced, tamano]);
 
-  useEffect(() => { load(); }, [pagina, desde, hasta, orden, dir, searchDebounced]);
+  useLiveData(load, 5000);
 
-  // Cambia de columna o invierte dirección. Reinicia a la primera página.
   const alternarOrden = (col: OrdenCol) => {
     if (orden === col) {
       setDir(d => (d === "asc" ? "desc" : "asc"));
@@ -79,7 +78,6 @@ export default function RegistrosPage() {
     LOGIN: "blue", CREATE: "green", EDIT: "gold", INACTIVE: "red", TICKET: "green",
   };
 
-  // Flecha de orden por columna. Solo las que el backend acepta.
   const flecha = (col: OrdenCol) => (orden === col ? (dir === "asc" ? " ▲" : " ▼") : "");
 
   const headerStyle: React.CSSProperties = {
@@ -99,7 +97,7 @@ export default function RegistrosPage() {
     <div>
       <div style={{ marginBottom: 24 }}>
         <h2 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 24 }}>Módulo Registros (Logs)</h2>
-        <p style={{ color: C.sub, fontSize: 14 }}>RF 2.7 — {total} movimientos</p>
+        <p style={{ color: C.sub, fontSize: 14 }}>— {total} movimientos</p>
       </div>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>

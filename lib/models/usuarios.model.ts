@@ -1,5 +1,6 @@
 // Modelo de usuarios: empleados, clientes y alta automática.
 // Reglas de rol y manejo de contraseñas viven aquí.
+import type { PoolClient } from "pg";
 import bcrypt from "bcryptjs";
 import pool from "@/lib/db";
 import { ErrorDominio } from "./errores";
@@ -30,6 +31,16 @@ interface OpcionesListado {
   dir?: "asc" | "desc";
 }
 
+// bcrypt cost 10 tarda ~80 ms. Reusar el mismo hash para la contraseña de
+// fallback ("123456") evita gastar CPU en cada update de empleado sin password.
+// No es regresión de seguridad: todos esos usuarios ya comparten la misma
+// password por diseño; el hash bcrypt incluye su propio salt.
+let hashFallbackPromise: Promise<string> | null = null;
+function getHashFallback() {
+  if (!hashFallbackPromise) hashFallbackPromise = bcrypt.hash("123456", 10);
+  return hashFallbackPromise;
+}
+
 // Lista usuarios por nombre de rol con paginación y orden server-side.
 // Excluye soft-deleted.
 export async function listarUsuariosPorRol(rol: string, opts: OpcionesListado = {}) {
@@ -56,30 +67,31 @@ export async function listarUsuariosPorRol(rol: string, opts: OpcionesListado = 
   const col = cols[opts.orden || "nombre"] || "u.nombre";
   const dir = opts.dir === "desc" ? "DESC" : "ASC";
 
-  const total = await pool.query(
-    `SELECT COUNT(*)::int AS total
-     FROM usuarios u
-     JOIN roles r ON r.id_roles = u.roles_id_roles
-     ${where}`,
-    params
-  );
-
-  const { rows } = await pool.query(
-    `SELECT
-       u.documento AS doc,
-       u.nombre,
-       COALESCE(u.cargo, '') AS cargo,
-       COALESCE(u.telefono, '') AS telefono,
-       COALESCE(u.correo, '') AS correo,
-       e.nombre_estado AS estado
-     FROM usuarios u
-     JOIN roles r ON r.id_roles = u.roles_id_roles
-     JOIN estados e ON e.id_estado = u.estados_id_estado
-     ${where}
-     ORDER BY ${col} ${dir}
-     LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-    [...params, tamano, offset]
-  );
+  const [total, { rows }] = await Promise.all([
+    pool.query(
+      `SELECT COUNT(*)::int AS total
+       FROM usuarios u
+       JOIN roles r ON r.id_roles = u.roles_id_roles
+       ${where}`,
+      params
+    ),
+    pool.query(
+      `SELECT
+         u.documento AS doc,
+         u.nombre,
+         COALESCE(u.cargo, '') AS cargo,
+         COALESCE(u.telefono, '') AS telefono,
+         COALESCE(u.correo, '') AS correo,
+         e.nombre_estado AS estado
+       FROM usuarios u
+       JOIN roles r ON r.id_roles = u.roles_id_roles
+       JOIN estados e ON e.id_estado = u.estados_id_estado
+       ${where}
+       ORDER BY ${col} ${dir}
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, tamano, offset]
+    ),
+  ]);
 
   return {
     datos: rows,
@@ -92,8 +104,11 @@ export async function listarUsuariosPorRol(rol: string, opts: OpcionesListado = 
 
 // Devuelve el usuario con rol y estado, incluyendo si está eliminado.
 // Usado antes de crear/actualizar y para validar propietarios.
-export async function obtenerUsuarioConRol(doc: number) {
-  const { rows } = await pool.query(
+// Acepta un `client` (transacción abierta por el llamador) para que la lectura
+// vea el estado no confirmado de la propia transacción.
+export async function obtenerUsuarioConRol(doc: number, client?: PoolClient) {
+  const q = client ?? pool;
+  const { rows } = await q.query(
     `SELECT
        u.documento,
        u.nombre,
@@ -113,24 +128,63 @@ export async function obtenerUsuarioConRol(doc: number) {
 }
 
 // Crea o actualiza un empleado. Hashea la contraseña y fuerza rol "empleado".
-// ON CONFLICT permite reusar la función para "upsert".
+// Estado (si viene) se resuelve antes del INSERT para que el ON CONFLICT
+// absorba ambos caminos en un solo statement.
+// Si el llamador no manda contraseña, el ON CONFLICT preserva la existente en
+// vez de sobrescribirla con el fallback. Antes, editar otros campos de un
+// empleado existente sin password lo reseteaba a "123456" en silencio.
+// El upsert también promueve un doc existente a rol "empleado": un cliente
+// registrado con el mismo documento cambia de rol sin rama adicional.
 export async function crearEmpleado(datos: DatosEmpleado) {
-  const hash = await bcrypt.hash(datos.password || "123456", 10);
+  const passwordProvided =
+    typeof datos.password === "string" && datos.password.length > 0;
+  const hash = passwordProvided
+    ? await bcrypt.hash(datos.password as string, 10)
+    : await getHashFallback();
+
+  let estadoId: number | null = null;
+  let fechaEliminado: Date | null = null;
+
+  if (datos.estado) {
+    const er = await pool.query(
+      `SELECT id_estado FROM estados WHERE nombre_estado = $1 LIMIT 1`,
+      [datos.estado]
+    );
+    if (!er.rows.length) {
+      throw new ErrorDominio(`Estado ${datos.estado} no existe`, 400);
+    }
+    estadoId = er.rows[0].id_estado;
+    fechaEliminado = datos.estado === "inactivo" ? new Date() : null;
+  }
 
   const { rows } = await pool.query(
     `INSERT INTO usuarios (
        documento, estados_id_estado, roles_id_roles,
-       nombre, telefono, correo, contraseña, cargo
+       nombre, telefono, correo, contraseña, cargo, fecha_eliminado
      )
-     SELECT $1, e.id_estado, r.id_roles, $2, $3, $4, $5, $6
+     SELECT
+       $1,
+       COALESCE($7::int, e.id_estado),
+       r.id_roles,
+       $2, $3, $4, $5, $6,
+       $8::timestamp
      FROM estados e, roles r
      WHERE e.nombre_estado = 'activo' AND r.nombre_rol = 'empleado'
      ON CONFLICT (documento) DO UPDATE SET
        nombre = EXCLUDED.nombre,
+       roles_id_roles = EXCLUDED.roles_id_roles,
        cargo = EXCLUDED.cargo,
        telefono = EXCLUDED.telefono,
        correo = EXCLUDED.correo,
-       contraseña = EXCLUDED.contraseña
+       contraseña = CASE
+         WHEN $9::boolean THEN EXCLUDED.contraseña
+         ELSE usuarios.contraseña
+       END,
+       estados_id_estado = COALESCE($7::int, usuarios.estados_id_estado),
+       fecha_eliminado = CASE
+         WHEN $7::int IS NULL THEN usuarios.fecha_eliminado
+         ELSE $8::timestamp
+       END
      RETURNING documento AS doc`,
     [
       datos.doc,
@@ -139,17 +193,17 @@ export async function crearEmpleado(datos: DatosEmpleado) {
       datos.correo || "",
       hash,
       datos.cargo || null,
+      estadoId,
+      fechaEliminado,
+      passwordProvided,
     ]
   );
-
-  if (datos.estado) {
-    await cambiarEstadoPorNombre(datos.doc, datos.estado);
-  }
 
   return rows[0];
 }
 
-// Actualiza parcialmente. Solo escribe los campos definitivamente presentes.
+// Actualiza parcialmente. Estado se resuelve aquí adentro para que el cambio
+// de rol/estado entre en el mismo UPDATE que el resto de los campos.
 export async function actualizarUsuario(
   doc: number,
   cambios: {
@@ -190,19 +244,37 @@ export async function actualizarUsuario(
     sets.push(`contraseña = $${values.length}`);
   }
 
+  if (cambios.estado) {
+    const er = await pool.query(
+      `SELECT id_estado FROM estados WHERE nombre_estado = $1 LIMIT 1`,
+      [cambios.estado]
+    );
+    if (!er.rows.length) {
+      throw new ErrorDominio(`Estado ${cambios.estado} no existe`, 400);
+    }
+    values.push(er.rows[0].id_estado);
+    sets.push(`estados_id_estado = $${values.length}`);
+    values.push(cambios.estado === "inactivo" ? new Date() : null);
+    sets.push(`fecha_eliminado = $${values.length}`);
+  }
+
   if (!sets.length) {
     throw new ErrorDominio("No hay campos para actualizar", 400);
   }
 
+  // RETURNING convierte el UPDATE en su propio chequeo de existencia: si el
+  // documento no está, no hay fila devuelta. Antes el llamador debía asumir
+  // éxito sin señal alguna.
   values.push(doc);
-  await pool.query(
-    `UPDATE usuarios SET ${sets.join(", ")} WHERE documento = $${values.length}`,
+  const { rows } = await pool.query(
+    `UPDATE usuarios SET ${sets.join(", ")}
+     WHERE documento = $${values.length}
+     RETURNING documento`,
     values
   );
 
-  // El estado se trata aparte porque involucra cambiar fecha_eliminado.
-  if (cambios.estado) {
-    await cambiarEstadoPorNombre(doc, cambios.estado);
+  if (!rows.length) {
+    throw new ErrorDominio("Usuario no encontrado", 404);
   }
 
   return { ok: true };
@@ -210,38 +282,42 @@ export async function actualizarUsuario(
 
 // Cambia el estado del usuario por nombre ("activo", "trabajando", "descansando", "inactivo").
 // Regla: "inactivo" implica soft delete (fecha_eliminado); el resto limpia esa fecha.
+// Un solo statement: el id del estado se resuelve en el FROM estados y la fecha
+// se decide por CASE, sin un SELECT previo.
 export async function cambiarEstadoPorNombre(doc: number, nombreEstado: string) {
-  const { rows } = await pool.query(
-    `SELECT id_estado
-     FROM estados
-     WHERE nombre_estado = $1
-     LIMIT 1`,
-    [nombreEstado]
+  const { rowCount } = await pool.query(
+    `UPDATE usuarios u
+     SET estados_id_estado = e.id_estado,
+         fecha_eliminado = CASE WHEN $2 = 'inactivo' THEN NOW() ELSE NULL END
+     FROM estados e
+     WHERE e.nombre_estado = $2 AND u.documento = $1`,
+    [doc, nombreEstado]
   );
 
-  if (!rows.length) {
-    throw new ErrorDominio(`Estado ${nombreEstado} no existe`, 400);
+  // rowCount = 0 tanto si el usuario no existe como si el estado no existe.
+  // Se elige un solo mensaje a cambio de no hacer un SELECT previo: los
+  // llamadores sólo pasan nombres del catálogo sembrado.
+  if (rowCount === 0) {
+    throw new ErrorDominio(
+      `Usuario ${doc} o estado ${nombreEstado} no encontrados`,
+      404
+    );
   }
-
-  const idEstado = rows[0].id_estado;
-  const esInactivo = nombreEstado === "inactivo";
-  const fechaEliminado = esInactivo ? new Date() : null;
-
-  await pool.query(
-    `UPDATE usuarios
-     SET estados_id_estado = $2,
-         fecha_eliminado = $3
-     WHERE documento = $1`,
-    [doc, idEstado, fechaEliminado]
-  );
 
   return { ok: true };
 }
 
 // Garantiza que exista un cliente. Se usa al registrar vehículo mensual
 // o al crear un ticket con un documento nuevo.
-export async function crearClienteSiNoExiste(datos: DatosCliente) {
-  const existente = await obtenerUsuarioConRol(datos.doc);
+// Acepta un `client` para entrar en la transacción de `crearTicket`: el alta
+// del cliente y el ticket son atómicos (si falla el ticket, no queda un
+// cliente huérfano creado por un ingreso que nunca ocurrió).
+export async function crearClienteSiNoExiste(
+  datos: DatosCliente,
+  client?: PoolClient
+) {
+  const q = client ?? pool;
+  const existente = await obtenerUsuarioConRol(datos.doc, client);
 
   // Caso 1: existe y no está eliminado.
   if (existente && !existente.eliminado) {
@@ -252,7 +328,7 @@ export async function crearClienteSiNoExiste(datos: DatosCliente) {
 
     // Si llega teléfono nuevo, se actualiza (mejora el dato sin bloquear).
     if (datos.telefono) {
-      await pool.query(
+      await q.query(
         `UPDATE usuarios SET telefono = $1 WHERE documento = $2`,
         [datos.telefono, datos.doc]
       );
@@ -261,14 +337,42 @@ export async function crearClienteSiNoExiste(datos: DatosCliente) {
     return { usuario: existente, creado: false };
   }
 
-  // Caso 2: no existe (o está soft-deleted). Se crea como "cliente" con datos mínimos.
+  // Caso 2: existe soft-deleted. Revivir como cliente, no intentar INSERT
+  // (chocaría con la PK). Si el documento pertenece a un empleado/gerente
+  // eliminado, se rechaza en vez de resucitarlo con un rol equivocado.
+  if (existente && existente.eliminado) {
+    if (existente.role !== "cliente") {
+      throw new ErrorDominio(
+        "El documento está reservado a un empleado/gerente eliminado. Contacte al administrador.",
+        409
+      );
+    }
+
+    const { rows } = await q.query(
+      `UPDATE usuarios u
+       SET fecha_eliminado = NULL,
+           estados_id_estado = (SELECT id_estado FROM estados WHERE nombre_estado='activo' LIMIT 1),
+           telefono = COALESCE($2, u.telefono),
+           nombre = COALESCE(u.nombre, $3)
+       WHERE u.documento = $1
+       RETURNING documento, nombre, telefono, correo`,
+      [datos.doc, datos.telefono ?? null, datos.nombre ?? `Cliente ${datos.doc}`]
+    );
+
+    return { usuario: rows[0], creado: true };
+  }
+
+  // Caso 3: no existe. Se crea como "cliente" con datos mínimos.
   // Contraseña inicial = el propio documento: el cliente puede cambiarla después.
+  // El correo sintético usa el TLD reservado .local (RFC 6762) y el prefijo
+  // "doc_" para dejar claro que es generado; como `correo` es UNIQUE y el
+  // documento lo es, el formato garantiza unicidad.
   const hash = await bcrypt.hash(String(datos.doc), 10);
   const telefono = datos.telefono || `3${String(datos.doc).padStart(9, "0")}`;
-  const correo = datos.correo || `${datos.doc}@parqueadero.generado`;
+  const correo = datos.correo || `doc_${datos.doc}@parqueadero.local`;
   const nombre = datos.nombre || `Cliente ${datos.doc}`;
 
-  const { rows } = await pool.query(
+  const { rows } = await q.query(
     `INSERT INTO usuarios (
        documento, estados_id_estado, roles_id_roles,
        nombre, telefono, correo, contraseña
