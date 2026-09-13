@@ -6214,3 +6214,857 @@
 
 # 2026-09-13 17:16:59.913227
 +a
+
+# 2026-09-13 17:20:53.160239
++ GET /api/version 200 in 1272ms
++ GET /api/version 200 in 1504ms
++ GET /vehiculos 200 in 545ms
++ GET /api/vehiculos?recurso=papelera 200 in 1358ms
++ GET /api/version 200 in 1374ms
++ GET /api/vehiculos?recurso=puestos 200 in 1511ms
++ GET /api/version 200 in 1274ms
++ GET /api/vehiculos?recurso=papelera 200 in 488ms
++ GET /api/vehiculos?pagina=1&tamano=20&filtro=todos 200 in 1390ms
++ GET /api/vehiculos?recurso=puestos 200 in 1265ms
++ GET /api/version 200 in 433ms
++ GET /api/version 200 in 409ms
++ GET /api/version 200 in 1398ms
++ GET /api/vehiculos?recurso=papelera 200 in 1356ms
++ GET /api/version 200 in 577ms
++ GET /api/version 200 in 1473ms
++ GET /empleados 200 in 133ms
++ GET /api/version 200 in 1378ms
++ GET /api/version 200 in 1381ms
++ GET /api/usuarios?rol=empleado&pagina=1&tamano=20 200 in 2408ms
++ GET /sugerencias 200 in 119ms
++ GET /api/version 200 in 474ms
++ GET /api/version 200 in 476ms
++ GET /api/sugerencias 200 in 1491ms
++ GET /registros 200 in 119ms
++ GET /api/version 200 in 487ms
++ GET /api/version 200 in 1332ms
++ GET /api/registros?pagina=1&tamano=20&orden=fecha&dir=desc 200 in 1294ms
++ GET /api/version 200 in 423ms
++ GET /api/version 200 in 648ms
++ GET /api/version 200 in 2107ms
++ GET /registros 200 in 280ms
++ GET /api/csrf 200 in 288ms
++ GET /api/auth/me 200 in 1328ms
++ GET /api/version 200 in 414ms
++ GET /api/version 200 in 1254ms
++ GET /api/registros?pagina=1&tamano=20&orden=fecha&dir=desc 200 in 2406ms
++ GET /api/version 200 in 465ms
++ GET /api/version 200 in 397ms
++ GET /vehiculos 200 in 379ms
++ GET /api/version 200 in 1275ms
++ GET /api/vehiculos?recurso=puestos 200 in 1477ms
++ GET /api/version 200 in 1490ms
++ GET /api/version 200 in 1493ms
++ GET /api/vehiculos?recurso=papelera 200 in 1665ms
++ GET /api/vehiculos?recurso=puestos 200 in 432ms
++ GET /api/vehiculos?recurso=papelera 200 in 550ms
++ GET /api/vehiculos?pagina=1&tamano=20&filtro=todos 200 in 1449ms
++ GET /vehiculos 200 in 714ms
++ GET /api/csrf 200 in 347ms
++ GET /api/auth/me 200 in 2699ms
++ GET /api/version 200 in 565ms
++ GET /api/vehiculos?recurso=puestos 200 in 1798ms
++ GET /api/version 200 in 1666ms
++ GET /api/vehiculos?recurso=papelera 200 in 1894ms
++ GET /api/vehiculos?pagina=1&tamano=20&filtro=todos 200 in 551ms
++ GET /api/vehiculos?recurso=puestos 200 in 534ms
++ GET /api/vehiculos?recurso=papelera 200 in 1800ms
++ GET /api/version 200 in 416ms
++ GET /estadisticas 200 in 127ms
++ GET /api/version 200 in 475ms
++ GET /api/version 200 in 476ms
++ GET /api/tarifas 200 in 1718ms
++ GET /api/estadisticas 200 in 2553ms
++ ✓ Compiled in 79ms
++ GET /api/version 200 in 589ms
++ GET /api/version 200 in 568ms
++ GET /api/estadisticas 200 in 1351ms
++ GET /api/tarifas 200 in 1370ms
++ ✓ Compiled in 33ms
++ GET /api/version 200 in 584ms
++ GET /api/tarifas 200 in 688ms
++ GET /api/estadisticas 200 in 1496ms
++ GET /api/version 200 in 1618ms
++ GET / 200 in 116ms
++ GET /api/vehiculos?recurso=tipos 200 in 1614ms
++ GET /api/tarifas/admin 200 in 1614ms
++ GET /api/version 200 in 1442ms
++ GET /api/version 200 in 1456ms
++ GET /api/vehiculos?recurso=tipos 200 in 510ms
++ GET /api/estadisticas 200 in 2415ms
++ GET /api/tarifas/admin 200 in 672ms
++ GET /api/vehiculos?tamano=4 200 in 632ms
++ GET /api/estadisticas 200 in 401ms
++ GET /api/sugerencias 200 in 1554ms
++ GET /api/usuarios?rol=empleado&tamano=1 200 in 1562ms
++ GET /api/version 200 in 406ms
++ GET /api/version 200 in 567ms
++ GET /api/version 200 in 1486ms
++ GET /api/version 200 in 1436ms
++ GET /api/version 200 in 1846ms
++ GET /api/version 200 in 2196ms
++ GET /api/version 200 in 1326ms
++ GET /api/version 200 in 1490ms
++ GET /api/version 200 in 1470ms
++ GET /api/version 200 in 1494ms
++ GET /api/version 200 in 1643ms
++ GET /api/version 200 in 1343ms
++ GET /api/version 200 in 1450ms
++ GET /api/version 200 in 1400ms
++ GET /api/version 200 in 1427ms
++ GET /api/version 200 in 1537ms
++ GET /api/version 200 in 1337ms
++ GET /api/version 200 in 1517ms
++ GET /api/version 200 in 1580ms
++ GET /api/version 200 in 1552ms
++^C
++➜  Administracion_PP git:(main) ✗ pnpm dev        
++$ next dev --turbopack
++   ▲ Next.js 15.5.20 (Turbopack)
++   - Local:        http://localhost:3000
++   - Network:      http://192.168.43.223:3000
++   - Environments: .env
++
++ ✓ Starting...
++ ○ Compiling middleware ...
++ ✓ Compiled middleware in 937ms
++ ✓ Ready in 7.8s
++ ○ Compiling / ...
++ ✓ Compiled / in 7s
++ GET / 200 in 7889ms
++ ○ Compiling /api/csrf ...
++ ✓ Compiled /api/csrf in 966ms
++ GET /api/csrf 200 in 1620ms
++ GET /api/auth/me 401 in 1621ms
++ ○ Compiling /api/auth/login ...
++ ✓ Compiled /api/auth/login in 678ms
++(node:135373) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
++In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
++
++To prepare for this change:
++- If you want the current behavior, explicitly use 'sslmode=verify-full'
++- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
++
++See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
++(Use `node-22 --trace-warnings ...` to show where the warning was created)
++ POST /api/auth/login 200 in 5255ms
++ GET /api/auth/me 200 in 501ms
++ ○ Compiling /api/tarifas/admin ...
++ POST /api/auth/login 200 in 6421ms
++ ✓ Compiled /api/tarifas/admin in 1066ms
++ GET / 200 in 547ms
++ GET /api/estadisticas 200 in 1798ms
++ GET /api/auth/me 200 in 568ms
++ GET / 200 in 190ms
++ GET /api/estadisticas 200 in 742ms
++ GET /api/version 200 in 3040ms
++ GET /api/estadisticas 200 in 499ms
++ GET /api/vehiculos?recurso=tipos 200 in 3146ms
++ GET /api/version 200 in 3241ms
++ GET /api/tarifas/admin 200 in 3300ms
++ ✓ Compiled /api/usuarios in 460ms
++ GET /api/vehiculos?tamano=4 200 in 565ms
++ GET /api/vehiculos?recurso=tipos 200 in 641ms
++ GET /api/tarifas/admin 200 in 641ms
++ GET /api/usuarios?rol=empleado&tamano=1 200 in 1018ms
++ GET /api/sugerencias 200 in 1019ms
++ GET /api/vehiculos?recurso=tipos 200 in 522ms
++ GET /api/tarifas/admin 200 in 525ms
++ ○ Compiling /vehiculos ...
++ ✓ Compiled /vehiculos in 713ms
++ GET /vehiculos 200 in 848ms
++ GET /api/version 200 in 670ms
++ GET /api/version 200 in 672ms
++ GET /api/vehiculos?recurso=papelera 200 in 676ms
++ GET /api/vehiculos?recurso=puestos 200 in 848ms
++ GET /api/vehiculos?recurso=papelera 200 in 543ms
++ GET /api/vehiculos?pagina=1&tamano=20&filtro=todos 200 in 546ms
++ GET /api/vehiculos?recurso=puestos 200 in 460ms
++ ○ Compiling /empleados ...
++ ✓ Compiled /empleados in 506ms
++ GET /empleados 200 in 611ms
++ GET /api/version 200 in 582ms
++ GET /api/version 200 in 582ms
++ GET /api/usuarios?rol=empleado&pagina=1&tamano=20 200 in 472ms
++ ○ Compiling /sugerencias ...
++ ✓ Compiled /sugerencias in 548ms
++ GET /sugerencias 200 in 657ms
++ GET /api/version 200 in 532ms
++ GET /api/version 200 in 539ms
++ GET /api/sugerencias 200 in 444ms
++ ✓ Compiled /registros in 477ms
++ GET /registros 200 in 595ms
++ GET /api/version 200 in 555ms
++ GET /api/version 200 in 560ms
++ ✓ Compiled /api/registros in 199ms
++ GET /api/registros?pagina=1&tamano=20&orden=fecha&dir=desc 200 in 716ms
++ ○ Compiling /estadisticas ...
++ ✓ Compiled /estadisticas in 531ms
++ GET /estadisticas 200 in 636ms
++ GET /api/version 200 in 572ms
++ GET /api/version 200 in 553ms
++ GET /api/version 200 in 625ms
++ ✓ Compiled /api/tarifas in 282ms
++ GET /api/estadisticas 200 in 578ms
++ GET /api/tarifas 200 in 740ms
++ GET /vehiculos 200 in 142ms
++ GET /api/vehiculos?recurso=puestos 200 in 810ms
++ GET /api/version 200 in 814ms
++ GET /api/vehiculos?recurso=papelera 200 in 818ms
++ GET /api/version 200 in 826ms
++ GET /api/vehiculos?recurso=papelera 200 in 725ms
++ GET /api/vehiculos?recurso=puestos 200 in 731ms
++ GET /api/vehiculos?pagina=1&tamano=20&filtro=todos 200 in 737ms
++ ✓ Compiled /tickets in 490ms
++ GET /tickets 200 in 617ms
++ GET /api/vehiculos?recurso=tipos 200 in 589ms
++ GET /api/version 200 in 601ms
++ GET /api/version 200 in 598ms
++ ✓ Compiled /api/tickets in 290ms
++ GET /api/vehiculos?recurso=tipos 200 in 630ms
++ GET /api/vehiculos?recurso=puestos 200 in 625ms
++ GET /api/tickets?pagina=1&tamano=20 200 in 774ms
++ ✓ Compiled /api/auth/logout in 167ms
++ POST /api/auth/logout 200 in 627ms
++ GET / 200 in 180ms
++ GET /api/version 200 in 502ms
++ POST /api/auth/login 200 in 1144ms
++ ○ Compiling /perfil ...
++ GET /api/auth/me 200 in 757ms
++ ✓ Compiled /perfil in 667ms
++ GET /perfil 200 in 810ms
++ POST /api/auth/login 200 in 2102ms
++ GET /perfil 200 in 525ms
++ GET /perfil 200 in 526ms
++ GET /perfil 200 in 477ms
++ GET /api/auth/me 200 in 565ms
++ GET /perfil 200 in 256ms
++ ✓ Compiled /api/perfil in 377ms
++ GET /api/version 200 in 2147ms
++ GET /api/version 200 in 2110ms
++ GET /api/perfil 200 in 820ms
++ GET /api/perfil 200 in 744ms
++ ✓ Compiled /tarifas in 483ms
++ GET /tarifas 200 in 599ms
++ GET /api/version 200 in 498ms
++ GET /api/version 200 in 516ms
++ GET /api/vehiculos?recurso=tipos 200 in 546ms
++ GET /api/tarifas 200 in 562ms
++ GET /sugerencias 200 in 134ms
++ GET /api/version 200 in 577ms
++ GET /api/version 200 in 579ms
++ GET /api/sugerencias 200 in 632ms
++ POST /api/auth/logout 200 in 612ms
++ GET / 200 in 105ms
++ POST /api/auth/login 200 in 1024ms
++ POST /api/auth/login 200 in 1026ms
++ GET /api/auth/me 200 in 675ms
++ GET /api/version 200 in 782ms
++ GET / 200 in 277ms
++ GET /api/auth/me 200 in 476ms
++ GET / 200 in 165ms
++ GET /api/version 200 in 1984ms
++ GET /api/usuarios?rol=empleado&tamano=1 200 in 697ms
++ GET /api/sugerencias 200 in 699ms
++ GET /api/vehiculos?tamano=4 200 in 2224ms
++ GET /tickets 200 in 120ms
++ GET /api/vehiculos?recurso=tipos 200 in 676ms
++ GET /api/version 200 in 687ms
++ GET /api/version 200 in 678ms
++ GET /api/vehiculos?recurso=tipos 200 in 602ms
++ GET /api/vehiculos?recurso=puestos 200 in 609ms
++ GET /api/tickets?pagina=1&tamano=20 200 in 618ms
++ GET /vehiculos 200 in 157ms
++ GET /api/version 200 in 694ms
++ GET /api/version 200 in 736ms
++ GET /api/vehiculos?recurso=puestos 200 in 741ms
++ GET /api/vehiculos?recurso=papelera 200 in 744ms
++ GET /api/vehiculos?recurso=papelera 200 in 693ms
++ GET /api/vehiculos?recurso=puestos 200 in 698ms
++ GET /api/vehiculos?pagina=1&tamano=20&filtro=todos 200 in 700ms
++ GET /api/version 200 in 591ms
++ GET /api/vehiculos?recurso=papelera 200 in 515ms
++ GET /api/version 200 in 434ms
++ GET /api/version 200 in 444ms
++ ✓ Compiled /api/vehiculos/[placa] in 255ms
++ PATCH /api/vehiculos/JKI123 403 in 2296ms
++ DELETE /api/vehiculos/JKI123 403 in 349ms
++ GET /api/version 200 in 476ms
++ GET /api/version 200 in 436ms
++ GET /api/version 200 in 766ms
++ GET /api/version 200 in 488ms
++ GET /api/version 200 in 612ms
++ GET /api/version 200 in 487ms
++ GET /api/version 200 in 499ms
++ GET /api/version 200 in 712ms
++ GET /tickets 200 in 140ms
++ GET /api/version 200 in 581ms
++ GET /api/version 200 in 1385ms
++ GET /api/vehiculos?recurso=tipos 200 in 1446ms
++ GET /api/tickets?pagina=1&tamano=20 200 in 551ms
++ GET /api/vehiculos?recurso=puestos 200 in 553ms
++ GET /api/vehiculos?recurso=tipos 200 in 1420ms
++ GET /api/version 200 in 504ms
++ ✓ Compiled /api/tickets/[id] in 417ms
++ PATCH /api/tickets/9 200 in 2980ms
++ GET /api/tickets?pagina=1&tamano=20 200 in 444ms
++ GET /api/vehiculos?recurso=puestos 200 in 453ms
++ GET /api/version 200 in 458ms
++ GET /api/vehiculos?recurso=puestos 200 in 526ms
++ GET /api/tickets?pagina=1&tamano=20 200 in 532ms
++ GET /api/vehiculos/MLK123 200 in 728ms
++ GET /api/version 200 in 546ms
++ GET /api/version 200 in 472ms
++ GET /api/version 200 in 600ms
++ GET /api/version 200 in 459ms
++ GET /api/version 200 in 463ms
++ POST /api/tickets 200 in 2576ms
++ GET /api/tickets/11 200 in 543ms
++ GET /api/tickets?pagina=1&tamano=20 200 in 565ms
++ GET /api/vehiculos?recurso=puestos 200 in 696ms
++ GET /api/version 200 in 458ms
++ GET /api/tickets?pagina=1&tamano=20 200 in 573ms
++ GET /api/vehiculos?recurso=puestos 200 in 1509ms
++ GET /api/version 200 in 422ms
++ GET /api/version 200 in 456ms
++ GET /estadisticas 200 in 147ms
++ GET /api/version 200 in 569ms
++ GET /api/version 200 in 569ms
++ GET /api/tarifas 200 in 514ms
++ GET /api/estadisticas 200 in 517ms
++ GET / 200 in 117ms
++ GET /api/version 200 in 483ms
++ GET /api/version 200 in 487ms
++ GET /api/sugerencias 200 in 555ms
++ GET /api/usuarios?rol=empleado&tamano=1 200 in 565ms
++ GET /api/vehiculos?tamano=4 200 in 1825ms
++ POST /api/auth/logout 200 in 638ms
++ GET / 200 in 227ms
++ GET / 200 in 213ms
++ GET /api/auth/me 401 in 398ms
++ GET /api/csrf 200 in 421ms
++ GET / 200 in 180ms
++ GET /api/csrf 200 in 459ms
++ GET /api/auth/me 401 in 461ms
++ POST /api/auth/login 200 in 2256ms
++ POST /api/auth/login 200 in 2263ms
++ GET /api/auth/me 200 in 566ms
++ GET /api/auth/me 200 in 824ms
++ GET / 200 in 246ms
++ GET /api/version 200 in 884ms
++ GET /api/version 200 in 955ms
++ GET / 200 in 215ms
++ GET /api/usuarios?rol=empleado&tamano=1 200 in 1309ms
++ GET /api/sugerencias 200 in 3843ms
++ GET /api/vehiculos?tamano=4 200 in 4072ms
++ GET /sugerencias 200 in 143ms
++ GET /api/version 200 in 545ms
++ GET /api/version 200 in 547ms
++ GET /api/sugerencias 200 in 448ms
++ GET /tickets 200 in 232ms
++ GET /api/version 200 in 583ms
++ GET /api/vehiculos?recurso=tipos 200 in 583ms
++ GET /api/version 200 in 587ms
++ GET /api/vehiculos?recurso=tipos 200 in 578ms
++ GET /api/vehiculos?recurso=puestos 200 in 597ms
++ GET /api/tickets?pagina=1&tamano=20 200 in 602ms
++ GET /api/version 200 in 458ms
++ GET /api/version 200 in 409ms
++ GET /api/version 200 in 498ms
++ GET /vehiculos 200 in 155ms
++ GET /api/version 200 in 728ms
++ GET /api/version 200 in 757ms
++ GET /api/vehiculos?recurso=puestos 200 in 746ms
++ GET /api/vehiculos?recurso=papelera 200 in 723ms
++ GET /api/vehiculos?recurso=puestos 200 in 764ms
++ GET /api/vehiculos?pagina=1&tamano=20&filtro=todos 200 in 765ms
++ GET /api/vehiculos?recurso=papelera 200 in 772ms
++ GET /api/version 200 in 439ms
++ ✓ Compiled in 888ms
++ GET /api/version 200 in 810ms
++ GET /api/vehiculos?pagina=1&tamano=20&filtro=todos 200 in 545ms
++ GET /api/version 200 in 471ms
++ GET /api/version 200 in 634ms
++ GET /api/version 200 in 435ms
++ GET /api/version 200 in 519ms
++ GET /api/version 200 in 407ms
++ GET /api/version 200 in 468ms
++ GET /api/version 200 in 503ms
++ GET /api/version 200 in 732ms
++ GET /api/version 200 in 434ms
++ GET /api/version 200 in 666ms
++ GET /api/version 200 in 499ms
++ GET /api/version 200 in 424ms
++ GET /api/version 200 in 509ms
++ GET /api/version 200 in 423ms
++ GET /api/version 200 in 429ms
++ GET /api/version 200 in 429ms
++ GET /api/version 200 in 428ms
++ GET /api/version 200 in 600ms
++ GET /api/version 200 in 498ms
++ GET /api/version 200 in 445ms
++ GET /api/version 200 in 445ms
++ GET /api/version 200 in 457ms
++ ✓ Compiled in 51ms
++ GET /api/version 200 in 821ms
++ GET /api/vehiculos?pagina=1&tamano=20&filtro=todos 200 in 1929ms
++ GET /api/version 200 in 510ms
++ GET /api/version 200 in 445ms
++ GET /sugerencias 200 in 441ms
++ GET /api/version 200 in 691ms
++ GET /api/version 200 in 683ms
++ GET /api/sugerencias 200 in 733ms
++ GET / 200 in 164ms
++ GET /api/version 200 in 874ms
++ GET /api/version 200 in 875ms
++ GET /api/usuarios?rol=empleado&tamano=1 200 in 619ms
++ GET /api/sugerencias 200 in 1564ms
++ GET /api/vehiculos?tamano=4 200 in 1643ms
++^C
++➜  Administracion_PP git:(main) ✗ npx tsc --noEmit
++.next/types/validator.ts:179:39 - error TS2306: File '/home/miguelangel/Documentos/GitHub/Administracion_PP/app/api/eventos/route.ts' is not a module.
++
++179   const handler = {} as typeof import("../../app/api/eventos/route.js")
++                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++
++
++Found 1 error in .next/types/validator.ts:179
++
++➜  Administracion_PP git:(main) ✗ rm -rf .next                 
++➜  Administracion_PP git:(main) ✗ npx tsc --noEmit
++➜  Administracion_PP git:(main) ✗ pnpm dev        
++$ next dev --turbopack
++   ▲ Next.js 15.5.20 (Turbopack)
++   - Local:        http://localhost:3000
++   - Network:      http://192.168.43.223:3000
++   - Environments: .env
++
++ ✓ Starting...
++ ○ Compiling middleware ...
++ ✓ Compiled middleware in 587ms
++ ✓ Ready in 3.8s
++^C
++➜  Administracion_PP git:(main) ✗ rm lib/bus.ts
++rm: no se puede borrar 'lib/bus.ts': No existe el fichero o el directorio
++➜  Administracion_PP git:(main) ✗ pnpm dev        
++$ next dev --turbopack
++   ▲ Next.js 15.5.20 (Turbopack)
++   - Local:        http://localhost:3000
++   - Network:      http://192.168.43.223:3000
++   - Environments: .env
++
++ ✓ Starting...
++ ○ Compiling middleware ...
++ ✓ Compiled middleware in 1128ms
++ ✓ Ready in 4.3s
++ ○ Compiling / ...
++ ✓ Compiled / in 4.4s
++ GET / 200 in 5255ms
++ ○ Compiling /api/auth/me ...
++ ✓ Compiled /api/auth/me in 1348ms
++ GET /api/csrf 200 in 1733ms
++ GET /api/auth/me 401 in 1848ms
++ ✓ Compiled /api/auth/login in 267ms
++(node:142042) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
++In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
++
++To prepare for this change:
++- If you want the current behavior, explicitly use 'sslmode=verify-full'
++- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
++
++See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
++(Use `node-22 --trace-warnings ...` to show where the warning was created)
++ POST /api/auth/login 200 in 4622ms
++ ○ Compiling /api/tarifas/admin ...
++ GET /api/auth/me 200 in 569ms
++ POST /api/auth/login 200 in 2008ms
++ ✓ Compiled /api/tarifas/admin in 1094ms
++ GET / 200 in 679ms
++ GET /api/estadisticas 200 in 1872ms
++ GET /api/auth/me 200 in 771ms
++ GET / 200 in 117ms
++ GET /api/version 200 in 2770ms
++ GET /api/tarifas/admin 200 in 2936ms
++ GET /api/vehiculos?recurso=tipos 200 in 2946ms
++ GET /api/version 200 in 2810ms
++ GET /api/estadisticas 200 in 453ms
++ ✓ Compiled /api/usuarios in 490ms
++ GET /api/tarifas/admin 200 in 870ms
++ GET /api/vehiculos?recurso=tipos 200 in 872ms
++ GET /api/vehiculos?tamano=4 200 in 874ms
++ GET /api/estadisticas 200 in 827ms
++ GET /api/sugerencias 200 in 1076ms
++ GET /api/usuarios?rol=empleado&tamano=1 200 in 1080ms
++ GET /api/vehiculos?recurso=tipos 200 in 573ms
++ GET /api/tarifas/admin 200 in 567ms
++ GET /api/version 200 in 401ms
++ ○ Compiling /vehiculos ...
++ ✓ Compiled /vehiculos in 1581ms
++ GET /vehiculos 200 in 1737ms
++ GET /api/vehiculos?recurso=puestos 200 in 768ms
++ GET /api/version 200 in 814ms
++ GET /api/version 200 in 815ms
++ GET /api/vehiculos?recurso=papelera 200 in 818ms
++ GET / 200 in 177ms
++ GET /api/vehiculos?recurso=puestos 200 in 500ms
++ GET /api/vehiculos?recurso=papelera 200 in 548ms
++ GET /api/vehiculos?pagina=1&tamano=20&filtro=todos 200 in 630ms
++ GET /api/vehiculos?recurso=tipos 200 in 646ms
++ GET /api/version 200 in 654ms
++ GET /api/tarifas/admin 200 in 662ms
++ GET /api/version 200 in 663ms
++ GET /api/estadisticas 200 in 666ms
++ GET /api/vehiculos?recurso=tipos 200 in 481ms
++ GET /api/tarifas/admin 200 in 485ms
++ GET /api/usuarios?rol=empleado&tamano=1 200 in 1677ms
++ GET /api/sugerencias 200 in 1682ms
++ GET /api/estadisticas 200 in 1684ms
++ GET /api/vehiculos?tamano=4 200 in 2818ms
++ GET /api/version 200 in 499ms
++ GET /api/version 200 in 423ms
++ ✓ Compiled /api/tarifas in 195ms
++ POST /api/tarifas 200 in 961ms
++ GET /api/tarifas/admin 200 in 467ms
++ GET /api/estadisticas 200 in 470ms
++ GET /api/version 200 in 413ms
++ GET /api/sugerencias 200 in 632ms
++ GET /api/vehiculos?tamano=4 200 in 642ms
++ GET /api/usuarios?rol=empleado&tamano=1 200 in 497ms
++ ✓ Compiled /api/tarifas/[id] in 184ms
++ DELETE /api/tarifas/11 200 in 2457ms
++ GET /api/estadisticas 200 in 455ms
++ GET /api/version 200 in 413ms
++ GET /api/tarifas/admin 200 in 423ms
++ GET /api/sugerencias 200 in 647ms
++ GET /api/vehiculos?tamano=4 200 in 649ms
++ GET /api/usuarios?rol=empleado&tamano=1 200 in 651ms
++ GET /api/version 200 in 634ms
++ GET /api/version 200 in 399ms
++ POST /api/tarifas 200 in 837ms
++ GET /api/tarifas/admin 200 in 455ms
++ GET /api/estadisticas 200 in 458ms
++ GET /api/version 200 in 384ms
++ GET /api/usuarios?rol=empleado&tamano=1 200 in 737ms
++ GET /api/sugerencias 200 in 740ms
++ GET /api/vehiculos?tamano=4 200 in 743ms
++ GET /api/version 200 in 391ms
++ DELETE /api/tarifas/12 200 in 606ms
++ GET /api/estadisticas 200 in 522ms
++ GET /api/tarifas/admin 200 in 534ms
++ GET /api/version 200 in 481ms
++ GET /api/sugerencias 200 in 523ms
++ GET /api/usuarios?rol=empleado&tamano=1 200 in 524ms
++ GET /api/vehiculos?tamano=4 200 in 529ms
++ GET /api/version 200 in 470ms
++ PATCH /api/tarifas/1 409 in 1179ms
++ GET /api/version 200 in 904ms
++ PATCH /api/tarifas/1 409 in 1105ms
++ GET /api/version 200 in 428ms
++ PATCH /api/tarifas/1 409 in 1113ms
++ GET /api/version 200 in 409ms
++ GET /api/version 200 in 546ms
++ PATCH /api/tarifas/1 200 in 1355ms
++ GET /api/tarifas/admin 200 in 496ms
++ GET /api/estadisticas 200 in 1571ms
++ GET /api/version 200 in 783ms
++ GET /api/vehiculos?tamano=4 200 in 538ms
++ GET /api/usuarios?rol=empleado&tamano=1 200 in 1447ms
++ GET /api/sugerencias 200 in 1479ms
++ PATCH /api/tarifas/10 200 in 1298ms
++ GET /api/estadisticas 200 in 429ms
++ GET /api/tarifas/admin 200 in 429ms
++ GET /api/version 200 in 499ms
++ GET /api/vehiculos?tamano=4 200 in 579ms
++ GET /api/usuarios?rol=empleado&tamano=1 200 in 518ms
++ GET /api/sugerencias 200 in 449ms
++ GET /api/version 200 in 506ms
++ PATCH /api/tarifas/2 409 in 1164ms
++ GET /api/version 200 in 409ms
++ PATCH /api/tarifas/2 409 in 1021ms
++ PATCH /api/tarifas/2 200 in 1238ms
++ GET /api/tarifas/admin 200 in 427ms
++ GET /api/estadisticas 200 in 409ms
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'
++}
++ ○ Compiling /_error ...
++ ✓ Compiled /_error in 3.2s
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.m1m5s0acddo'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.m1m5s0acddo'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.anhbf6hky05'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.anhbf6hky05'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.c4pqj3c5axt'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.c4pqj3c5axt'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.v44q2zu0zho'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.v44q2zu0zho'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.j9o37lrii9'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.j9o37lrii9'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.3e10788em0a'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.3e10788em0a'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.glh50jpcv6'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.glh50jpcv6'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.pzblpuhxyf'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.pzblpuhxyf'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.zodw8azx9lh'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.zodw8azx9lh'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.xgs97fkxuu'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.xgs97fkxuu'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/api/version/[__metadata_id__]/route/app-paths-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.2jcpco4kqux'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.2jcpco4kqux'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.st2myvqeayl'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.st2myvqeayl'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.yiuowja9ggf'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.yiuowja9ggf'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.b99wacgl6rh'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.b99wacgl6rh'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.17lajei2gfn'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.17lajei2gfn'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.stsmjp8g6n8'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.stsmjp8g6n8'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.ovrgywlw7s'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.ovrgywlw7s'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.0pq5xjj4pvpd'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.0pq5xjj4pvpd'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.agr4t1581wr'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.agr4t1581wr'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.ubjb6avo2yr'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.ubjb6avo2yr'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.9mq2n3ocx2o'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.9mq2n3ocx2o'
++}
++^A ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.wu8tz561cyn'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.wu8tz561cyn'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.4ls7wnyuhab'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.4ls7wnyuhab'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.yeda8c3ozvr'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.yeda8c3ozvr'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.m1zrds3rnsn'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.m1zrds3rnsn'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/server/app/vehiculos/page/app-build-manifest.json'
++}
++ ⨯ [Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.ql4gb3k5ypr'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.ql4gb3k5ypr'
++}
++[Error: ENOENT: no such file or directory, open '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.rvb1emajrdb'] {
++  errno: -2,
++  code: 'ENOENT',
++  syscall: 'open',
++  path: '/home/miguelangel/Documentos/GitHub/Administracion_PP/.next/static/development/_buildManifest.js.tmp.rvb1emajrdb'
++}
++
+
+# 2026-09-13 17:20:57.439864
++a
+
+# 2026-09-13 17:21:40.182455
++y

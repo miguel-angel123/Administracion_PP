@@ -35,4 +35,7 @@ next-env.d.ts
 # vercel
 .vercel
 *.core
-.aider*sql/mi_base_de_datos.sql
+.aider*
+
+# db dump
+sql/mi_base_de_datos.sql
