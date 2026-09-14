@@ -1,41 +1,58 @@
 # dependencies
+# Carpeta donde npm/pnpm/yarn instalan las dependencias del proyecto.
 node_modules/
+# Archivos de Plug'n'Play usados por Yarn en algunos proyectos.
 .pnp
 .pnp.js
 
 # next.js
+# Carpeta generada por Next.js durante desarrollo y build.
 .next/
+# Salida estática generada cuando se exporta el sitio.
 out/
 
 # production
+# Carpetas comunes de compilación para producción.
 build/
 dist/
 
 # misc
+# Archivo temporal creado por macOS.
 .DS_Store
+# Certificados o llaves privadas; no deben subirse al repositorio.
 *.pem
 
 # debug
+# Logs de errores generados por npm, yarn o pnpm.
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
 # env
+# Variables de entorno locales: aquí suelen vivir secretos como DATABASE_URL.
 .env
+# Variantes locales de entorno como .env.local o .env.production.local.
 .env*.local
 
 # typescript
+# Caché incremental de TypeScript.
 *.tsbuildinfo
+# Archivo generado automáticamente por Next.js.
 next-env.d.ts
 
 # turbo
+# Caché de Turborepo/Turbo si se usa en el proyecto.
 .turbo
 
 # vercel
+# Configuración local de despliegue en Vercel.
 .vercel
+# Archivos core dump generados por fallos del sistema.
 *.core
+# Archivos temporales del asistente Aider.
 .aider*
 
 # db dump
+# Dump local de base de datos; se ignora para evitar subir información sensible.
 sql/mi_base_de_datos.sql

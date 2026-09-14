@@ -1,15 +1,26 @@
 // Modelo de tickets diarios: alta, cierre con cálculo y finalización.
+// pool ejecuta consultas SQL contra PostgreSQL.
 import pool from "@/lib/db";
+// registrarLog inserta auditoria de operaciones importantes.
 import { registrarLog } from "@/lib/log";
+// ErrorDominio permite errores con status HTTP esperado.
 import { ErrorDominio } from "@/lib/models/errores";
+// Obtiene la tarifa correcta por modalidad y tipo de vehiculo.
 import { obtenerTarifaPorTipo } from "./tarifas.model";
+// Crea o valida clientes dentro de la transaccion del ticket.
 import { crearClienteSiNoExiste } from "./usuarios.model";
 
+// Opciones del listado paginado de tickets.
 interface OpcionesListado {
+  // Pagina actual.
   pagina?: number;
+  // Registros por pagina.
   tamano?: number;
+  // Texto para buscar por placa o propietario.
   buscar?: string;
+  // Columna permitida para ordenar.
   orden?: "id" | "placa" | "propietario" | "entrada" | "estado";
+  // Direccion de ordenamiento.
   dir?: "asc" | "desc";
 }
 
@@ -22,22 +33,31 @@ interface OpcionesListado {
 // siempre arriba y los cerrados abajo, sin importar la columna elegida por
 // el operador (dentro de cada grupo se respeta el orden solicitado).
 export async function listarTickets(opts: OpcionesListado = {}) {
+  // Normaliza pagina minima.
   const pagina = Math.max(1, opts.pagina || 1);
+  // Limita tamano de pagina.
   const tamano = Math.min(100, Math.max(1, opts.tamano || 20));
+  // Calcula OFFSET para SQL.
   const offset = (pagina - 1) * tamano;
 
+  // Filtro base: no mostrar tickets finalizados/eliminados.
   const filtros: string[] = ["tik.fecha_eliminado IS NULL"];
+  // Parametros dinamicos del SQL.
   const params: unknown[] = [];
+  // Indica si se aplicara busqueda textual.
   const hayBuscar = !!(opts.buscar && opts.buscar.trim());
 
+  // Agrega filtro por placa o propietario si hay busqueda.
   if (hayBuscar) {
     params.push(`%${opts.buscar!.trim()}%`);
     const idx = params.length;
     filtros.push(`(v.placa ILIKE $${idx} OR u.nombre ILIKE $${idx})`);
   }
 
+  // Clausula WHERE compartida por count y listado.
   const where = "WHERE " + filtros.join(" AND ");
 
+  // Mapa blanco de columnas ordenables.
   const cols: Record<string, string> = {
     id: "tik.id_ticket",
     placa: "v.placa",
@@ -45,7 +65,9 @@ export async function listarTickets(opts: OpcionesListado = {}) {
     entrada: "tik.fecha_ingreso",
     estado: "estado",
   };
+  // Columna segura para ORDER BY.
   const col = cols[opts.orden || "entrada"] || "tik.fecha_ingreso";
+  // Direccion segura; por defecto DESC para ver recientes primero.
   const dir = opts.dir === "asc" ? "ASC" : "DESC";
 
   // El COUNT no requiere los JOINs cuando no hay búsqueda: ningún filtro toca
@@ -55,6 +77,7 @@ export async function listarTickets(opts: OpcionesListado = {}) {
        JOIN usuarios u ON u.documento = tik.usuarios_documento`
     : "";
 
+  // Ejecuta count y datos en paralelo.
   const [total, { rows }] = await Promise.all([
     pool.query(
       `SELECT COUNT(*)::int AS total
@@ -89,10 +112,15 @@ export async function listarTickets(opts: OpcionesListado = {}) {
   ]);
 
   return {
+    // Tickets de la pagina actual.
     datos: rows,
+    // Total de tickets filtrados.
     total: total.rows[0].total,
+    // Pagina normalizada.
     pagina,
+    // Tamano normalizado.
     tamano,
+    // Total de paginas para UI.
     totalPaginas: Math.max(1, Math.ceil(total.rows[0].total / tamano)),
   };
 }
@@ -122,6 +150,7 @@ export async function crearTicket(datos: {
   tipo_vehiculo_id?: number;
   operadorDoc: string;
 }) {
+  // Extrae los datos recibidos desde el route.ts.
   const {
     placa,
     doc_propietario,
@@ -130,18 +159,25 @@ export async function crearTicket(datos: {
     tipo_vehiculo_id,
     operadorDoc,
   } = datos;
+  // Normaliza placa para guardar siempre en mayusculas.
   const placaLimpia = String(placa || "").toUpperCase().trim();
 
+  // Validacion minima de entrada.
   if (!placaLimpia || !puestos_id_puesto) {
     throw new ErrorDominio("Faltan placa o puesto");
   }
 
+  // Reserva conexion concreta para la transaccion.
   const cliente = await pool.connect();
+  // Indica si el flujo creo o revivio un cliente.
   let clienteCreado = false;
+  // Documento del cliente creado, usado despues para log.
   let docClienteNuevo: number | null = null;
+  // Id del ticket creado, devuelto al frontend.
   let ticketId = "";
 
   try {
+    // Inicia transaccion.
     await cliente.query("BEGIN");
 
     // 1. Validación del puesto. FOR UPDATE bloquea la fila hasta el COMMIT:
@@ -154,6 +190,7 @@ export async function crearTicket(datos: {
       [Number(puestos_id_puesto)]
     );
 
+    // No permite usar puestos inexistentes u ocupados.
     if (!puesto.rows.length || puesto.rows[0].estado_puesto) {
       throw new ErrorDominio("El puesto no existe o está ocupado");
     }
@@ -171,6 +208,7 @@ export async function crearTicket(datos: {
 
     // El puesto lo elige siempre el operador. El SELECT con FOR UPDATE del paso 1
     // ya validó que está libre y bloqueó la fila hasta el COMMIT.
+    // Se normaliza a numero para guardar en tickets.
     const puestoFinal = Number(puestos_id_puesto);
 
     // 3. Tipo de vehículo y tarifa diaria aplicable.
@@ -178,25 +216,33 @@ export async function crearTicket(datos: {
     //    operador lo corrija (viene en `tipo_vehiculo_id`). Placa nueva → el
     //    operador debe seleccionarlo. La tarifa sale de la combinación
     //    modalidad "diario" × tipo, no de un diario genérico.
+    // Guardara el id final del tipo de vehiculo.
     let tipoVehiculoId: number;
 
+    // Si la placa ya existe, hereda o corrige su tipo.
     if (vehiculo.rows.length) {
+      // Tipo actual asociado a la tarifa vigente del vehiculo.
       const tipoActualId = vehiculo.rows[0].tipo_vehiculo_id;
+      // Si no tiene tipo configurado, el sistema no puede elegir tarifa.
       if (!tipoActualId) {
         throw new ErrorDominio(
           "El vehículo no tiene tipo de vehículo configurado. Contacte al gerente.",
           500
         );
       }
+      // Normaliza tipo actual.
       const tipoActual = Number(tipoActualId);
+      // Usa tipo enviado por operador o conserva tipo actual.
       tipoVehiculoId = tipo_vehiculo_id ? Number(tipo_vehiculo_id) : tipoActual;
 
       // El tipo actual ya está garantizado por la FK. Si el operador eligió uno
       // distinto, hay que validarlo contra el catálogo.
       if (tipoVehiculoId !== tipoActual) {
+        // Valida que el id sea numerico positivo.
         if (!Number.isFinite(tipoVehiculoId) || tipoVehiculoId <= 0) {
           throw new ErrorDominio("Tipo de vehículo inválido", 400);
         }
+        // Comprueba que exista en catalogo.
         const existe = await cliente.query(
           `SELECT 1 FROM tipos_vehiculo
            WHERE id_tipo_vehiculo = $1 AND fecha_eliminado IS NULL`,
@@ -207,13 +253,17 @@ export async function crearTicket(datos: {
         }
       }
     } else {
+      // Para placa nueva el operador debe seleccionar tipo.
       if (!tipo_vehiculo_id) {
         throw new ErrorDominio("Seleccione el tipo de vehículo para la placa nueva", 400);
       }
+      // Normaliza tipo elegido.
       tipoVehiculoId = Number(tipo_vehiculo_id);
+      // Valida forma numerica del tipo.
       if (!Number.isFinite(tipoVehiculoId) || tipoVehiculoId <= 0) {
         throw new ErrorDominio("Tipo de vehículo inválido", 400);
       }
+      // Comprueba que el tipo exista y no este eliminado.
       const existe = await cliente.query(
         `SELECT 1 FROM tipos_vehiculo
          WHERE id_tipo_vehiculo = $1 AND fecha_eliminado IS NULL`,
@@ -224,23 +274,30 @@ export async function crearTicket(datos: {
       }
     }
 
+    // Busca tarifa diaria correspondiente al tipo de vehiculo.
     const tarifaDiaria = await obtenerTarifaPorTipo("diario", tipoVehiculoId, cliente);
 
+    // Busca id del estado activo para vehiculo y ticket.
     const estadoActivo = await cliente.query(
       `SELECT id_estado FROM estados WHERE nombre_estado = 'activo' LIMIT 1`
     );
+    // Si no existe estado activo, falta catalogo base.
     if (!estadoActivo.rows.length) {
       throw new ErrorDominio("Falta estado activo", 500);
     }
+    // Id numerico de estado activo.
     const estadoActivoId = estadoActivo.rows[0].id_estado;
 
+    // Documento del propietario final que quedara en ticket.
     let propietarioDoc: number;
 
+    // Flujo para placa ya registrada.
     if (vehiculo.rows.length) {
       // Ya existe: debe ser diario.
       if (vehiculo.rows[0].tipo === "mensual") {
         throw new ErrorDominio("Los vehículos mensuales no usan tickets");
       }
+      // Usa propietario ya asociado al vehiculo.
       propietarioDoc = Number(vehiculo.rows[0].usuarios_documento);
 
       // Reactivación + corrección de tipo en un solo UPDATE. `tarifaDiaria` ya
@@ -268,10 +325,12 @@ export async function crearTicket(datos: {
         throw new ErrorDominio("Ingrese documento del propietario para el vehículo diario");
       }
 
+      // Para placa nueva tambien se exige telefono.
       if (!telefono) {
         throw new ErrorDominio("Ingrese teléfono del propietario para el vehículo diario");
       }
 
+      // Documento numerico del propietario nuevo/existente.
       const docFinal = Number(doc_propietario);
 
       // Alta o reactivación del cliente dentro de la misma transacción.
@@ -279,7 +338,9 @@ export async function crearTicket(datos: {
         { doc: docFinal, telefono },
         cliente
       );
+      // Guarda si se creo cliente.
       clienteCreado = resultadoCliente.creado;
+      // Guarda doc para registrar log posterior.
       docClienteNuevo = docFinal;
 
       // Alta del vehículo diario con la tarifa correcta por tipo. El DO UPDATE
@@ -297,6 +358,7 @@ export async function crearTicket(datos: {
         [placaLimpia, docFinal, estadoActivoId, tarifaDiaria.id_tarifa]
       );
 
+      // El propietario final del ticket es el doc recien procesado.
       propietarioDoc = docFinal;
     }
 
@@ -308,11 +370,13 @@ export async function crearTicket(datos: {
       [placaLimpia]
     );
 
+    // Bloquea duplicidad de ticket abierto por placa.
     if (ticketAbierto.rows.length) {
       throw new ErrorDominio("El vehículo ya tiene un ticket abierto", 409);
     }
 
     // 5. Insertar el ticket. valor_total se llena al cerrar.
+    // RETURNING trae el id generado por PostgreSQL.
     const { rows } = await cliente.query(
       `INSERT INTO tickets (
          usuarios_documento, puestos_id_puesto, tarifa_id_tarifa,
@@ -330,6 +394,7 @@ export async function crearTicket(datos: {
       ]
     );
 
+    // Guarda id para devolverlo despues del COMMIT.
     ticketId = rows[0].id;
 
     // 6. Ocupar el puesto.
@@ -338,11 +403,15 @@ export async function crearTicket(datos: {
       [puestoFinal]
     );
 
+    // Confirma ticket + vehiculo + puesto + cliente.
     await cliente.query("COMMIT");
   } catch (e) {
+    // Deshace todo si una validacion o consulta falla.
     await cliente.query("ROLLBACK");
+    // Propaga error al controlador.
     throw e;
   } finally {
+    // Devuelve conexion al pool.
     cliente.release();
   }
 
@@ -351,8 +420,10 @@ export async function crearTicket(datos: {
   if (clienteCreado && docClienteNuevo !== null) {
     await registrarLog(operadorDoc, `Creó cliente ${docClienteNuevo} por ticket`);
   }
+  // Registra la creacion del ticket.
   await registrarLog(operadorDoc, `Registró ticket para ${placaLimpia}`);
 
+  // Respuesta final para la API.
   return { ok: true, id: ticketId };
 }
 
@@ -379,11 +450,14 @@ export async function crearTicket(datos: {
 // un diario ya cobrado quedaría visible como "activo" en /vehiculos y
 // sumaría en `estadisticas.activos`.
 export async function cerrarTicket(id: string, operadorDoc: string) {
+  // Reserva conexion para manejar transaccion.
   const cliente = await pool.connect();
 
   try {
+    // Inicia transaccion.
     await cliente.query("BEGIN");
 
+    // Lee el ticket abierto y bloquea su fila para evitar cierres simultaneos.
     const ticket = await cliente.query(
       `SELECT
          tik.id_ticket,
@@ -405,29 +479,42 @@ export async function cerrarTicket(id: string, operadorDoc: string) {
       [Number(id)]
     );
 
+    // Si no existe o ya tiene salida, no se puede cerrar.
     if (!ticket.rows.length) {
       throw new ErrorDominio("Ticket no encontrado o ya cerrado", 404);
     }
 
+    // Fila del ticket encontrada.
     const tk = ticket.rows[0];
+    // Horas transcurridas desde fecha_ingreso hasta ahora.
     const horas = Number(tk.horas || 0);
+    // Tope diario o valor del dia.
     const capDia = Number(tk.valor_dia || 0);
+    // Valor por hora del mismo tipo de vehiculo.
     const valorHora = Number(tk.valor_hora || 0);
 
     // Cobro por bloques de 24h. El piso de 1h sólo aplica si hay sobrante:
     // a las 24h exactas el bloque de día ya cubre el cobro y no se suma hora.
+    // Valor inicial: cobra al menos el dia si no hay tarifa por hora util.
     let valorTotal = capDia;
+    // Si hay hora y dia, aplica bloques de 24 horas con tope diario.
     if (valorHora > 0 && capDia > 0) {
+      // Dias completos de parqueo.
       const diasCompletos = Math.floor(horas / 24);
+      // Horas que sobran despues de los dias completos.
       const horasRestantes = horas - diasCompletos * 24;
+      // Cobro de horas restantes con minimo 1 hora y maximo valor_dia.
       const cobroRestante = horasRestantes > 0
         ? Math.min(Math.max(1, Math.ceil(horasRestantes)) * valorHora, capDia)
         : 0;
+      // Total final combinando dias completos y resto.
       valorTotal = diasCompletos * capDia + cobroRestante;
     } else if (valorHora > 0) {
+      // Si solo hay tarifa por hora, cobra horas redondeadas hacia arriba.
       valorTotal = Math.max(1, Math.ceil(horas)) * valorHora;
     }
 
+    // Cierra ticket, inactiva vehiculo y libera puesto en un solo SQL con CTEs.
     await cliente.query(
       `WITH cerrado AS (
          UPDATE tickets
@@ -450,14 +537,20 @@ export async function cerrarTicket(id: string, operadorDoc: string) {
       [valorTotal, Number(id)]
     );
 
+    // Confirma los cambios.
     await cliente.query("COMMIT");
+    // Registra log del cierre ya confirmado.
     await registrarLog(operadorDoc, `Cerró ticket ${tk.vehiculos_placa} por $${valorTotal}`);
 
+    // Devuelve total calculado para mostrarlo al operador.
     return { ok: true, valorTotal };
   } catch (e) {
+    // Revierte si algo falla.
     await cliente.query("ROLLBACK");
+    // Propaga error a la API.
     throw e;
   } finally {
+    // Libera conexion.
     cliente.release();
   }
 }
@@ -470,11 +563,14 @@ export async function cerrarTicket(id: string, operadorDoc: string) {
 // responsabilidad de cerrarTicket, no de esta función.
 // FOR UPDATE serializa la lectura con un cierre concurrente.
 export async function finalizarTicket(id: string, operadorDoc: string) {
+  // Reserva conexion para transaccion.
   const cliente = await pool.connect();
 
   try {
+    // Inicia transaccion.
     await cliente.query("BEGIN");
 
+    // Lee ticket y lo bloquea para evitar finalizaciones/cierres simultaneos.
     const ticket = await cliente.query(
       `SELECT puestos_id_puesto, vehiculos_placa
        FROM tickets
@@ -484,12 +580,15 @@ export async function finalizarTicket(id: string, operadorDoc: string) {
       [Number(id)]
     );
 
+    // Si no existe, reporta 404.
     if (!ticket.rows.length) {
       throw new ErrorDominio("Ticket no encontrado", 404);
     }
 
+    // Placa usada para el log despues del commit.
     const { vehiculos_placa } = ticket.rows[0];
 
+    // Marca ticket como eliminado, inactiva vehiculo y libera puesto.
     await cliente.query(
       `WITH tk AS (
          UPDATE tickets
@@ -511,14 +610,20 @@ export async function finalizarTicket(id: string, operadorDoc: string) {
       [Number(id)]
     );
 
+    // Confirma los cambios.
     await cliente.query("COMMIT");
+    // Registra la accion ya confirmada.
     await registrarLog(operadorDoc, `Finalizó ticket ${vehiculos_placa}`);
 
+    // Respuesta simple para la API.
     return { ok: true };
   } catch (e) {
+    // Revierte cambios parciales.
     await cliente.query("ROLLBACK");
+    // Propaga error.
     throw e;
   } finally {
+    // Libera conexion.
     cliente.release();
   }
 }
@@ -533,6 +638,7 @@ export async function finalizarTicket(id: string, operadorDoc: string) {
 // El JOIN a `tipos_vehiculo` expone el nombre del tipo (Automóvil, Moto, …)
 // para que el comprobante pueda distinguirlo de la modalidad "diario".
 export async function obtenerTicketParaImpresion(id: string) {
+  // Consulta todos los datos necesarios para construir el comprobante.
   const { rows } = await pool.query(
     `SELECT
        tik.id_ticket::text AS id,
@@ -565,5 +671,6 @@ export async function obtenerTicketParaImpresion(id: string) {
     [Number(id)]
   );
 
+  // Devuelve el ticket o null si no existe.
   return rows[0] || null;
 }

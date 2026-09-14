@@ -1,16 +1,26 @@
 // Modelo de vehículos. Dos flujos:
 //   - Mensual: alta desde este modelo, genera contrato.
 //   - Diario: alta desde tickets.model cuando se crea el ticket.
+// pool ejecuta consultas SQL contra PostgreSQL.
 import pool from "@/lib/db";
+// ErrorDominio permite que las APIs respondan con status controlado.
 import { ErrorDominio } from "./errores";
+// Se usa para crear o validar propietarios tipo cliente.
 import { crearClienteSiNoExiste } from "./usuarios.model";
 
+// Opciones aceptadas por el listado paginado de vehiculos.
 interface OpcionesListado {
+  // Pagina actual.
   pagina?: number;
+  // Registros por pagina.
   tamano?: number;
+  // Texto para buscar por placa o propietario.
   buscar?: string;
+  // Columna permitida para ordenar.
   orden?: "placa" | "nombre" | "tipo" | "estado" | "ingreso";
+  // Direccion del ordenamiento.
   dir?: "asc" | "desc";
+  // Filtro de modalidad/estado.
   filtro?: string;
 }
 
@@ -23,24 +33,38 @@ interface OpcionesListado {
 // con EXISTS de tickets abiertos y subqueries a tarifa, gastando un EXISTS por
 // fila y un CASE anidado para derivar el estado.
 export async function listarVehiculos(opts: OpcionesListado = {}) {
+  // Normaliza pagina minima.
   const pagina = Math.max(1, opts.pagina || 1);
+  // Limita tamano para evitar consultas/respuestas demasiado grandes.
   const tamano = Math.min(100, Math.max(1, opts.tamano || 20));
+  // Calcula desplazamiento SQL.
   const offset = (pagina - 1) * tamano;
+  // Filtro por defecto: todos los activos.
   const filtro = opts.filtro || "todos";
+  // Bandera para saber si hay busqueda textual real.
   const hayBuscar = !!(opts.buscar && opts.buscar.trim());
 
+  // Filtro base: no mostrar vehiculos eliminados logicamente.
   const filtros: string[] = ["v.fecha_eliminado IS NULL"];
+  // Parametros SQL dinamicos.
   const params: unknown[] = [];
 
+  // Agrega busqueda por placa o nombre si existe.
   if (hayBuscar) {
+    // ILIKE busca sin distinguir mayusculas/minusculas.
     params.push(`%${opts.buscar!.trim()}%`);
+    // Numero del placeholder SQL recien agregado.
     const idx = params.length;
+    // Busca coincidencia parcial en placa o nombre del propietario.
     filtros.push(`(v.placa ILIKE $${idx} OR u.nombre ILIKE $${idx})`);
   }
 
+  // SQL reutilizable para estado activo.
   const estaActivo = `v.estados_id_estado = (SELECT id_estado FROM estados WHERE nombre_estado = 'activo')`;
+  // SQL reutilizable para cualquier estado distinto de activo.
   const estaInactivo = `v.estados_id_estado <> (SELECT id_estado FROM estados WHERE nombre_estado = 'activo')`;
 
+  // Aplica filtros de estado o modalidad.
   if (filtro === "todos" || filtro === "activo") {
     filtros.push(estaActivo);
   } else if (filtro === "inactivo") {
@@ -52,8 +76,10 @@ export async function listarVehiculos(opts: OpcionesListado = {}) {
     );
   }
 
+  // Clausula WHERE final para conteo y listado.
   const where = "WHERE " + filtros.join(" AND ");
 
+  // Mapa blanco de columnas ordenables.
   const cols: Record<string, string> = {
     placa: "v.placa",
     nombre: "u.nombre",
@@ -61,7 +87,9 @@ export async function listarVehiculos(opts: OpcionesListado = {}) {
     estado: "e.nombre_estado",
     ingreso: "ingreso",
   };
+  // Columna segura para ORDER BY.
   const col = cols[opts.orden || "placa"] || "v.placa";
+  // Direccion segura para ORDER BY.
   const dir = opts.dir === "desc" ? "DESC" : "ASC";
 
   // El COUNT sólo necesita `vehiculos` (y `usuarios` si hay búsqueda por
@@ -138,10 +166,15 @@ export async function listarVehiculos(opts: OpcionesListado = {}) {
   ]);
 
   return {
+    // Vehiculos de la pagina actual.
     datos: rows,
+    // Total de vehiculos que cumplen filtros.
     total: total.rows[0].total,
+    // Pagina normalizada.
     pagina,
+    // Tamano normalizado.
     tamano,
+    // Total de paginas para paginador.
     totalPaginas: Math.max(1, Math.ceil(total.rows[0].total / tamano)),
   };
 }
@@ -151,8 +184,10 @@ export async function listarVehiculos(opts: OpcionesListado = {}) {
 // Devuelve también el teléfono y el tipo_vehiculo_id para autocompletar el
 // formulario cuando la placa ya está registrada.
 export async function obtenerVehiculoPorPlaca(placa: string) {
+  // Normaliza placa a mayusculas y sin espacios extremos.
   const placaLimpia = String(placa || "").toUpperCase().trim();
 
+  // Busca placa vigente con propietario y tipo de tarifa.
   const { rows } = await pool.query(
     `SELECT
        v.placa,
@@ -171,7 +206,9 @@ export async function obtenerVehiculoPorPlaca(placa: string) {
   );
 
   return {
+    // Booleano comodo para el frontend.
     existe: rows.length > 0,
+    // Fila completa o null si no existe.
     vehiculo: rows[0] || null,
   };
 }
@@ -196,24 +233,33 @@ export async function registrarVehiculoMensual(datos: {
   color?: string;
   puestosIdPuesto?: number | string;
 }) {
+  // Extrae campos y define color por defecto.
   const { placa, doc, nombre, telefono, color = "No especificado", puestosIdPuesto } = datos;
+  // Normaliza placa antes de guardar.
   const placaLimpia = String(placa || "").toUpperCase().trim();
+  // Convierte id de puesto a numero.
   const puestoId = Number(puestosIdPuesto);
 
+  // Validacion minima de placa/documento.
   if (!placaLimpia || !doc) {
     throw new ErrorDominio("La placa y el documento son obligatorios", 400);
   }
 
+  // Valida que el puesto sea numerico y positivo.
   if (!puestoId || Number.isNaN(puestoId) || puestoId <= 0) {
     throw new ErrorDominio("Debe asignar un puesto al contrato", 400);
   }
 
+  // Reserva una conexion para manejar transaccion.
   const cliente = await pool.connect();
+  // Bandera para informar si se creo cliente nuevo.
   let clienteCreado = false;
 
   try {
+    // Inicia transaccion atomica.
     await cliente.query("BEGIN");
 
+    // Lee y bloquea el puesto elegido.
     const puesto = await cliente.query(
       `SELECT id_puesto, estado_puesto
        FROM puestos
@@ -222,10 +268,12 @@ export async function registrarVehiculoMensual(datos: {
       [puestoId]
     );
 
+    // Si no existe, no se puede asignar.
     if (!puesto.rows.length) {
       throw new ErrorDominio("El puesto no existe", 404);
     }
 
+    // Si ya esta ocupado, bloquea la operacion.
     if (puesto.rows[0].estado_puesto) {
       throw new ErrorDominio("El puesto ya está ocupado", 409);
     }
@@ -237,6 +285,7 @@ export async function registrarVehiculoMensual(datos: {
       { doc: Number(doc), nombre, telefono },
       cliente
     );
+    // Guarda si la operacion creo/revivio cliente.
     clienteCreado = resultadoCliente.creado;
 
     // Ambos catálogos son estáticos y se necesitan en la misma fila del
@@ -252,21 +301,27 @@ export async function registrarVehiculoMensual(datos: {
           LIMIT 1) AS estado_id`
     );
 
+    // Id de tarifa mensual vigente.
     const tarifaId = catalogo.rows[0].tarifa_id;
+    // Id del estado activo.
     const estadoId = catalogo.rows[0].estado_id;
 
+    // Sin catalogos base no se puede crear vehiculo.
     if (!tarifaId || !estadoId) {
       throw new ErrorDominio("Faltan tarifas o estados configurados", 500);
     }
 
+    // Documento como numero definitivo.
     const docFinal = Number(doc);
 
+    // Inserta vehiculo mensual.
     await cliente.query(
       `INSERT INTO vehiculos (placa, usuarios_documento, estados_id_estado, tarifa_id_tarifa, color)
        VALUES ($1, $2, $3, $4, $5)`,
       [placaLimpia, docFinal, estadoId, tarifaId, color]
     );
 
+    // Inserta contrato mensual de un mes.
     await cliente.query(
       `INSERT INTO contratos (
          tarifa_id_tarifa, vehiculos_placa, usuarios_documento,
@@ -277,13 +332,16 @@ export async function registrarVehiculoMensual(datos: {
       [tarifaId, placaLimpia, docFinal, estadoId, puestoId]
     );
 
+    // Marca el puesto como ocupado.
     await cliente.query(
       `UPDATE puestos SET estado_puesto = TRUE WHERE id_puesto = $1`,
       [puestoId]
     );
 
+    // Confirma las tres escrituras.
     await cliente.query("COMMIT");
   } catch (e) {
+    // Revierte todo si algo falla.
     await cliente.query("ROLLBACK");
     // En esta transacción el 23505 puede venir de dos PK distintas:
     //   - `vehiculos`: otra alta ganó la carrera por la misma placa.
@@ -292,6 +350,7 @@ export async function registrarVehiculoMensual(datos: {
     // constraint. El catch anterior mapeaba cualquier 23505 a "placa
     // duplicada" y el mensaje quedaba mintiendo en el segundo caso.
     const err = e as { code?: string; table?: string };
+    // 23505 es violacion de unicidad.
     if (err?.code === "23505") {
       if (err.table === "vehiculos") {
         throw new ErrorDominio("La placa ya está registrada", 409);
@@ -300,11 +359,14 @@ export async function registrarVehiculoMensual(datos: {
         throw new ErrorDominio("El documento ya está registrado. Reintente.", 409);
       }
     }
+    // Cualquier otro error se propaga.
     throw e;
   } finally {
+    // Siempre devuelve la conexion al pool.
     cliente.release();
   }
 
+  // Respuesta usada por el controlador.
   return {
     ok: true,
     placa: placaLimpia,
@@ -329,10 +391,13 @@ export async function actualizarVehiculo(
     puestosIdPuesto?: number;
   }
 ) {
+  // Extrae los cambios permitidos.
   const { estado, color, nombre, puestosIdPuesto } = cambios;
+  // Reserva conexion para transaccion.
   const cliente = await pool.connect();
 
   try {
+    // Inicia transaccion.
     await cliente.query("BEGIN");
 
     // Fail-fast: si el caller reasigna puesto, verificar el contrato vigente y
@@ -341,8 +406,10 @@ export async function actualizarVehiculo(
     // deshacía todo, quemando locks sin motivo. Una sola lectura sirve para
     // validar y para conocer el puesto que hay que liberar después.
     const reasigna = puestosIdPuesto !== undefined && !Number.isNaN(Number(puestosIdPuesto));
+    // Puesto actual del contrato vigente, si se va a reasignar.
     let puestoAnteriorId: number | null = null;
 
+    // Si se reasigna puesto, primero valida que exista contrato vigente.
     if (reasigna) {
       const contratoVigente = await cliente.query(
         `SELECT puestos_id_puesto
@@ -360,13 +427,17 @@ export async function actualizarVehiculo(
           404
         );
       }
+      // Guarda el puesto actual para liberarlo si cambia.
       puestoAnteriorId = contratoVigente.rows[0].puestos_id_puesto;
     }
 
     // 1. Estado y color van en un solo UPDATE sobre vehiculos.
+    // setV guarda fragmentos tipo "color = $1".
     const setV: string[] = [];
+    // valsV guarda los valores correspondientes.
     const valsV: unknown[] = [];
 
+    // Si cambia estado, resuelve el id_estado.
     if (estado) {
       const er = await cliente.query(
         `SELECT id_estado FROM estados WHERE nombre_estado = $1 LIMIT 1`,
@@ -375,16 +446,20 @@ export async function actualizarVehiculo(
       if (!er.rows.length) {
         throw new ErrorDominio(`Estado ${estado} no existe`, 400);
       }
+      // Agrega estado al UPDATE dinamico.
       valsV.push(er.rows[0].id_estado);
       setV.push(`estados_id_estado = $${valsV.length}`);
     }
 
+    // Si cambia color, lo agrega al UPDATE dinamico.
     if (color) {
       valsV.push(color);
       setV.push(`color = $${valsV.length}`);
     }
 
+    // Ejecuta UPDATE de vehiculo solo si hay algo que cambiar.
     if (setV.length) {
+      // La placa es el ultimo parametro.
       valsV.push(placa);
       await cliente.query(
         `UPDATE vehiculos SET ${setV.join(", ")}
@@ -395,6 +470,7 @@ export async function actualizarVehiculo(
 
     // 2. Al inactivar se liberan los puestos de tickets abiertos.
     //    El puesto del contrato se mantiene reservado para el cliente.
+    // Esto afecta ingresos diarios abiertos, no contratos mensuales.
     if (estado === "inactivo") {
       await cliente.query(
         `UPDATE puestos p SET estado_puesto = FALSE
@@ -408,6 +484,7 @@ export async function actualizarVehiculo(
     }
 
     // 3. Nombre del propietario (vive en usuarios).
+    // Solo actualiza si llega nombre no vacio.
     if (nombre !== undefined && nombre.trim()) {
       await cliente.query(
         `UPDATE usuarios u SET nombre = $1
@@ -421,7 +498,9 @@ export async function actualizarVehiculo(
 
     // 4. Reasignación de puesto del contrato vigente. El contrato ya se validó
     //    y su puesto actual quedó en `puestoAnteriorId` durante el fail-fast.
+    // Si no venia puestosIdPuesto, esta seccion no corre.
     if (reasigna) {
+      // Normaliza el nuevo puesto.
       const nuevoId = Number(puestosIdPuesto);
 
       // Si el id coincide, no hay nada que hacer. Importante verificar ANTES
@@ -444,6 +523,7 @@ export async function actualizarVehiculo(
           throw new ErrorDominio("El puesto ya está ocupado", 409);
         }
 
+        // Cambia el puesto guardado en el contrato vigente.
         await cliente.query(
           `UPDATE contratos SET puestos_id_puesto = $1
            WHERE vehiculos_placa = $2
@@ -463,12 +543,17 @@ export async function actualizarVehiculo(
       }
     }
 
+    // Confirma todos los cambios.
     await cliente.query("COMMIT");
+    // Respuesta simple para la API.
     return { ok: true };
   } catch (e) {
+    // Revierte cualquier cambio parcial.
     await cliente.query("ROLLBACK");
+    // Propaga el error para que el route.ts responda.
     throw e;
   } finally {
+    // Libera la conexion.
     cliente.release();
   }
 }
@@ -478,11 +563,14 @@ export async function actualizarVehiculo(
 // como eliminado. Los tres UPDATE van en una transacción: si algo falla no queda
 // un vehículo sin contrato o un puesto huérfano ocupado.
 export async function eliminarVehiculoSoft(placa: string) {
+  // Reserva conexion para transaccion.
   const cliente = await pool.connect();
 
   try {
+    // Inicia transaccion.
     await cliente.query("BEGIN");
 
+    // Libera puestos asociados a contratos del vehiculo.
     await cliente.query(
       `UPDATE puestos p
        SET estado_puesto = FALSE
@@ -493,6 +581,7 @@ export async function eliminarVehiculoSoft(placa: string) {
       [placa]
     );
 
+    // Marca contratos como eliminados/inactivos.
     await cliente.query(
       `UPDATE contratos
        SET fecha_eliminado = NOW(),
@@ -501,18 +590,24 @@ export async function eliminarVehiculoSoft(placa: string) {
       [placa]
     );
 
+    // Marca el vehiculo como eliminado logicamente.
     await cliente.query(
       `UPDATE vehiculos SET fecha_eliminado = NOW()
        WHERE placa = $1 AND fecha_eliminado IS NULL`,
       [placa]
     );
 
+    // Confirma los tres cambios.
     await cliente.query("COMMIT");
+    // Respuesta simple.
     return { ok: true };
   } catch (e) {
+    // Revierte si algo falla.
     await cliente.query("ROLLBACK");
+    // Propaga error.
     throw e;
   } finally {
+    // Devuelve conexion al pool.
     cliente.release();
   }
 }
@@ -520,6 +615,7 @@ export async function eliminarVehiculoSoft(placa: string) {
 // Catálogo de tipos de vehículo. Antes vivía como SQL suelto en el controlador
 // de /api/vehiculos; se centraliza aquí para mantener MVC estricto.
 export async function listarTiposVehiculo() {
+  // Consulta tipos de vehiculo vigentes ordenados por id.
   const { rows } = await pool.query(
     `SELECT id_tipo_vehiculo::text AS id, nombre, icono
      FROM tipos_vehiculo
@@ -527,6 +623,7 @@ export async function listarTiposVehiculo() {
      ORDER BY id_tipo_vehiculo`
   );
 
+  // Devuelve el catalogo a la API.
   return rows;
 }
 
@@ -536,6 +633,7 @@ export async function listarTiposVehiculo() {
 // CASE reproduce la regla anterior (puesto='—' si el contrato ya expiró) sin
 // las dos subconsultas correlacionadas que había por fila.
 export async function listarVehiculosInactivos() {
+  // Consulta vehiculos mensuales suspendidos, con datos de propietario/contrato.
   const { rows } = await pool.query(`
     SELECT
       v.placa,
@@ -571,5 +669,6 @@ export async function listarVehiculosInactivos() {
     ORDER BY v.placa
   `);
 
+  // Devuelve las filas tal como las necesita el frontend.
   return rows;
 }

@@ -1,7 +1,9 @@
 // Semilla y migración de esquema idempotente.
 // Se ejecuta desde cada controlador antes de operar para asegurar que existan
 // tablas, roles, estados, tarifas base, puestos y usuarios demo.
+// bcryptjs permite crear hashes de contrasenas iniciales.
 import bcrypt from "bcryptjs";
+// pool ejecuta SQL contra PostgreSQL.
 import pool from "./db";
 
 // Estado compartido vía globalThis: sobrevive al hot-reload de Next en dev
@@ -9,7 +11,9 @@ import pool from "./db";
 // En serverless cada instancia tiene su propio global: el seed corre 1 vez por
 // instancia, no en cada request.
 const globalSeed = globalThis as unknown as {
+  // Promesa compartida del seed en ejecucion o ya ejecutado.
   __seedPromise?: Promise<void>;
+  // Bandera que indica que las migraciones ya se aplicaron en este proceso.
   __migrado?: boolean;
 };
 
@@ -231,24 +235,34 @@ const MIGRACION_PUESTOS_SQL = `
 
 // Aplica el script una sola vez por proceso.
 async function aplicarMigraciones() {
+  // Si ya se aplico en este proceso, no repite el DDL.
   if (globalSeed.__migrado) return;
 
+  // Ejecuta el bloque grande de cambios idempotentes.
   await pool.query(MIGRACION_SQL);
 
   // El recálculo toca filas de `puestos`; se aísla en una transacción para
   // que sea atómico frente a arranques concurrentes en dev (hot-reload).
+  // connect reserva una conexion concreta del pool para manejar BEGIN/COMMIT.
   const cliente = await pool.connect();
   try {
+    // Inicia transaccion.
     await cliente.query("BEGIN");
+    // Recalcula puestos libres/ocupados como una sola unidad logica.
     await cliente.query(MIGRACION_PUESTOS_SQL);
+    // Confirma cambios si no hubo error.
     await cliente.query("COMMIT");
   } catch (e) {
+    // Revierte cambios parciales si algo falla.
     await cliente.query("ROLLBACK");
+    // Propaga el error para que ensureSeed pueda liberar la promesa.
     throw e;
   } finally {
+    // Devuelve la conexion al pool aunque haya error.
     cliente.release();
   }
 
+  // Marca migraciones como completadas en este proceso.
   globalSeed.__migrado = true;
 }
 
@@ -257,16 +271,25 @@ async function aplicarMigraciones() {
 // - Idempotente: ON CONFLICT (documento) actualiza datos pero no rehashea si ya está hasheada
 //   (evita crear un hash nuevo cada arranque).
 async function insertarUsuarioSeed(opts: {
+  // Documento unico del usuario.
   documento: number;
+  // Nombre completo.
   nombre: string;
+  // Telefono de contacto.
   telefono: string;
+  // Correo de contacto.
   correo: string;
+  // Contrasena en texto plano solo antes de hashearla.
   password: string;
+  // Cargo aplica sobre todo a empleados/gerente; cliente puede ser null.
   cargo: string | null;
+  // Rol que se buscara en la tabla roles.
   rol: string;
 }) {
+  // Convierte la contrasena a hash bcrypt con costo 10.
   const hash = await bcrypt.hash(opts.password, 10);
 
+  // Inserta o actualiza el usuario seed.
   await pool.query(
     `INSERT INTO usuarios (
        documento, estados_id_estado, roles_id_roles, nombre,
@@ -280,11 +303,13 @@ async function insertarUsuarioSeed(opts: {
        telefono = EXCLUDED.telefono,
        correo = EXCLUDED.correo,
        cargo = EXCLUDED.cargo,
+       -- Solo reemplaza contrasenas que no parezcan hash bcrypt.
        contraseña = CASE
          WHEN usuarios.contraseña NOT LIKE '$2%'
          THEN EXCLUDED.contraseña
          ELSE usuarios.contraseña
        END`,
+    // Valores parametrizados para evitar SQL injection y problemas de comillas.
     [
       opts.documento,
       opts.nombre,
@@ -301,10 +326,13 @@ async function insertarUsuarioSeed(opts: {
 // Además garantiza que ABC123 (mensual) tenga contrato activo con un puesto asignado,
 // para que las estadísticas de ocupación reflejen datos reales.
 async function insertarVehiculosDemo() {
+  // Cuenta vehiculos vigentes para saber si debe crear datos demo.
   const conteo = await pool.query(
     `SELECT COUNT(*)::int AS total FROM vehiculos WHERE fecha_eliminado IS NULL`
   );
+  // Solo si no hay vehiculos, crea dos placas de prueba.
   if (conteo.rows[0].total === 0) {
+    // Crea vehiculo mensual ABC123 para el cliente demo.
     await pool.query(
       `INSERT INTO vehiculos (placa, usuarios_documento, estados_id_estado, tarifa_id_tarifa, color)
        SELECT 'ABC123', 1234, e.id_estado, t.id_tarifa, 'Rojo'
@@ -313,6 +341,7 @@ async function insertarVehiculosDemo() {
        ON CONFLICT (placa) DO NOTHING`
     );
 
+    // Crea vehiculo diario XYZ789 para el cliente demo.
     await pool.query(
       `INSERT INTO vehiculos (placa, usuarios_documento, estados_id_estado, tarifa_id_tarifa, color)
        SELECT 'XYZ789', 1234, e.id_estado, t.id_tarifa, 'Negro'
@@ -355,13 +384,17 @@ async function insertarVehiculosDemo() {
 
 // Cuerpo del seed: corre exactamente una vez por instancia (ver ensureSeed).
 async function ejecutarSeed() {
+  // Primero asegura columnas, indices, catalogos y triggers.
   await aplicarMigraciones();
 
+  // Cuenta usuarios para decidir si crear todos los usuarios demo.
   const usuarios = await pool.query(
     `SELECT COUNT(*)::int AS total FROM usuarios`
   );
 
+  // Si la tabla usuarios esta vacia, se crea el paquete completo de prueba.
   if (usuarios.rows[0].total === 0) {
+    // Usuario gerente demo.
     await insertarUsuarioSeed({
       documento: 1122338718,
       nombre: "Miguel Ángel Colobón",
@@ -372,6 +405,7 @@ async function ejecutarSeed() {
       rol: "gerente",
     });
 
+    // Usuario empleado demo 1.
     await insertarUsuarioSeed({
       documento: 123,
       nombre: "Isaac Aray",
@@ -382,6 +416,7 @@ async function ejecutarSeed() {
       rol: "empleado",
     });
 
+    // Usuario empleado demo 2.
     await insertarUsuarioSeed({
       documento: 124,
       nombre: "Miguel Ángel Godoy",
@@ -392,6 +427,7 @@ async function ejecutarSeed() {
       rol: "empleado",
     });
 
+    // Usuario cliente demo.
     await insertarUsuarioSeed({
       documento: 1234,
       nombre: "Carlos Pérez",
@@ -402,6 +438,7 @@ async function ejecutarSeed() {
       rol: "cliente",
     });
 
+    // Crea vehiculos y contrato demo asociados al cliente.
     await insertarVehiculosDemo();
   } else {
     // Si ya hay usuarios, garantizar al menos un empleado activo (útil tras reseeds parciales).
@@ -413,6 +450,7 @@ async function ejecutarSeed() {
        LIMIT 1`
     );
 
+    // Si no hay empleados, crea los dos empleados demo.
     if (!empleadosExistentes.rows.length) {
       await insertarUsuarioSeed({
         documento: 123,
@@ -442,8 +480,11 @@ async function ejecutarSeed() {
        WHERE contraseña NOT LIKE '$2%'`
     );
 
+    // Recorre cada usuario con contrasena en texto plano historica.
     for (const usuario of sinHash.rows) {
+      // Genera hash bcrypt para esa contrasena.
       const hash = await bcrypt.hash(usuario.contraseña, 10);
+      // Reemplaza el texto plano por hash.
       await pool.query(
         `UPDATE usuarios SET contraseña = $1 WHERE documento = $2`,
         [hash, usuario.doc]
@@ -457,12 +498,17 @@ async function ejecutarSeed() {
 //   - Siguientes requests (incluyendo concurrentes): reciben la misma promesa.
 //   - Si el seed falla, la promesa se limpia para reintentar en el próximo request.
 export async function ensureSeed() {
+  // Si ya hay una promesa en curso, todos esperan esa misma promesa.
   if (globalSeed.__seedPromise) return globalSeed.__seedPromise;
 
+  // Ejecuta seed y guarda la promesa global.
   globalSeed.__seedPromise = ejecutarSeed().catch((err) => {
+    // Si falla, borra la promesa para permitir reintento futuro.
     globalSeed.__seedPromise = undefined;
+    // Propaga el error original.
     throw err;
   });
 
+  // Devuelve la promesa del seed.
   return globalSeed.__seedPromise;
 }
