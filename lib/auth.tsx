@@ -68,11 +68,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fetch("/api/csrf").catch(() => {});
     // Activa navegacion con Enter entre campos/formularios.
     activarNavegacionEnter();
+
+    // Instrumenta window.fetch una sola vez por pestaña: mide cada request y
+    // avisa en consola si supera el umbral de 2 s exigido por el RNF.
+    const w = window as unknown as { __fetchCron?: boolean };
+    if (!w.__fetchCron) {
+      w.__fetchCron = true;
+      const orig = window.fetch.bind(window);
+      window.fetch = async (...args: Parameters<typeof fetch>) => {
+        const t0 = performance.now();
+        try {
+          return await orig(...args);
+        } finally {
+          const ms = performance.now() - t0;
+          if (ms > 2000) {
+            const url =
+              typeof args[0] === "string"
+                ? args[0]
+                : args[0] instanceof Request
+                  ? args[0].url
+                  : String(args[0]);
+            console.warn(`[fetch] lento (${ms.toFixed(0)}ms): ${url}`);
+          }
+        }
+      };
+    }
   }, []);
 
   // Efecto que intenta recuperar la sesion al cargar o recargar la pagina.
   useEffect(() => {
-    // Bandera para no actualizar estado si el componente ya se desmonto.
+    // Bandera para no actualizar estado si el componente ya se desmontó.
     let activo = true;
 
     // Funcion interna que consulta /api/auth/me y maneja reintentos.

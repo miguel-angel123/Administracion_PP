@@ -49,25 +49,37 @@ export async function obtenerIndicadores() {
   return rows[0];
 }
 
-// Conteo por día ISO de la semana actual, sumando tickets y contratos creados.
-// Devuelve siempre 7 elementos (Lun→Dom), rellenando con 0 los días sin datos.
+// Actividad semanal: una barra por día ISO (Lun→Dom) de la semana en curso.
+// Cuenta tickets y contratos CREADOS ese día (fecha_ingreso / fecha_inicio),
+// sin filtrar por fecha_eliminado: el gráfico mide actividad histórica, no
+// el snapshot vigente. `generate_series` garantiza las 7 filas y el mapeo se
+// hace por posición — inmune a que el driver devuelva `dow` como string o
+// number según el OID del parser.
 export async function obtenerIngresosSemanales() {
   const { rows } = await pool.query(`
-    SELECT COUNT(*)::int AS total, EXTRACT(ISODOW FROM t.fecha)::int AS dow
-    FROM (
-      SELECT fecha_ingreso AS fecha FROM tickets WHERE fecha_eliminado IS NULL
+    WITH semana AS (
+      SELECT gs::date AS dia
+      FROM generate_series(
+        date_trunc('week', NOW()),
+        date_trunc('week', NOW()) + INTERVAL '6 days',
+        INTERVAL '1 day'
+      ) AS gs
+    ),
+    eventos AS (
+      SELECT fecha_ingreso::date AS dia FROM tickets
       UNION ALL
-      SELECT fecha_inicio AS fecha FROM contratos WHERE fecha_eliminado IS NULL
-    ) t
-    WHERE t.fecha >= date_trunc('week', NOW())
-      AND t.fecha <  date_trunc('week', NOW()) + INTERVAL '1 week'
-    GROUP BY dow
+      SELECT fecha_inicio::date  AS dia FROM contratos
+    )
+    SELECT s.dia, COUNT(e.dia)::int AS total
+    FROM semana s
+    LEFT JOIN eventos e ON e.dia = s.dia
+    GROUP BY s.dia
+    ORDER BY s.dia
   `);
 
   const dias = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-
-  return dias.map((dia, index) => ({
+  return dias.map((dia, i) => ({
     dia,
-    total: rows.find(r => r.dow === index + 1)?.total || 0,
+    total: Number(rows[i]?.total ?? 0),
   }));
 }

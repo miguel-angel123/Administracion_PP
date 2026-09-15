@@ -12,6 +12,8 @@
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "jose": "^5.9.6",
+    "jspdf": "^2.5.2",
+    "jspdf-autotable": "^3.8.4",
     "next": "^15.5.18",
     "pg": "^8.13.1",
     "react": "^19.2.5",

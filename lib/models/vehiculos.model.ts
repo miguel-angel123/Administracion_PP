@@ -7,6 +7,8 @@ import pool from "@/lib/db";
 import { ErrorDominio } from "./errores";
 // Se usa para crear o validar propietarios tipo cliente.
 import { crearClienteSiNoExiste } from "./usuarios.model";
+// Validaciones de formato con lanzamiento de error para el backend.
+import { exigirPlaca, exigirDocumento, exigirTelefono, exigirTextoObligatorio } from "@/lib/validacion";
 
 // Opciones aceptadas por el listado paginado de vehiculos.
 interface OpcionesListado {
@@ -250,6 +252,15 @@ export async function registrarVehiculoMensual(datos: {
     throw new ErrorDominio("Debe asignar un puesto al contrato", 400);
   }
 
+  // Validación de formato. El route ya limpia (limpiarPlaca/limpiarDocumento),
+  // pero un caller directo (script, server action futura) debe toparse con
+  // las mismas reglas: antes "A1" o doc "12" pasaban la puerta de "no vacío".
+  exigirPlaca(placaLimpia);
+  exigirDocumento(doc);
+  if (telefono) exigirTelefono(telefono);
+  const nombreLimpio = nombre ? exigirTextoObligatorio(nombre, "El nombre", 100) : undefined;
+  const colorLimpio = color ? exigirTextoObligatorio(color, "El color", 30) : "No especificado";
+
   // Reserva una conexion para manejar transaccion.
   const cliente = await pool.connect();
   // Bandera para informar si se creo cliente nuevo.
@@ -282,7 +293,7 @@ export async function registrarVehiculoMensual(datos: {
     // previo era una carrera en sí mismo (dos tx pasaban el SELECT y una
     // perdía en el INSERT) y costaba un round-trip en el happy path.
     const resultadoCliente = await crearClienteSiNoExiste(
-      { doc: Number(doc), nombre, telefono },
+      { doc: Number(doc), nombre: nombreLimpio, telefono },
       cliente
     );
     // Guarda si la operacion creo/revivio cliente.
@@ -318,7 +329,7 @@ export async function registrarVehiculoMensual(datos: {
     await cliente.query(
       `INSERT INTO vehiculos (placa, usuarios_documento, estados_id_estado, tarifa_id_tarifa, color)
        VALUES ($1, $2, $3, $4, $5)`,
-      [placaLimpia, docFinal, estadoId, tarifaId, color]
+      [placaLimpia, docFinal, estadoId, tarifaId, colorLimpio]
     );
 
     // Inserta contrato mensual de un mes.

@@ -26,6 +26,15 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const recurso = searchParams.get("recurso");
 
+    // Listado, papelera y puestos son operativos: solo gerente/empleado.
+    // El catálogo de tipos lo consume /tarifas, visible a clientes: se exceptúa.
+    // Sin este guard, un cliente con la URL directa listaba vehículos aunque
+    // /vehiculos no esté en su menú permitido.
+    const esOperativo = sesion.role === "gerente" || sesion.role === "empleado";
+    if (!esOperativo && recurso !== "tipos") {
+      return NextResponse.json({ error: "Prohibido" }, { status: 403 });
+    }
+
     if (recurso === "tipos") {
       const tipos = await vehiculosModel.listarTiposVehiculo();
       return NextResponse.json(tipos);

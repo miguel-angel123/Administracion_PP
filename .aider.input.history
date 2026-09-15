@@ -7068,3 +7068,143 @@
 
 # 2026-09-13 17:21:40.182455
 +y
+
+# 2026-09-14 18:14:36.786854
++okey analiza esto que encontre y corrigelo para que tambien valide en el servidor (backend), ademas que me muestres en que parte y archivo del codigo se encuentran las validaciones: 3.1 Creación de registros
++Qué se pide:
++Validar los campos obligatorios tanto en el navegador como en el servidor.
++
++Estado actual: Cumple parcialmente
++
++En frontend existen validaciones para:
++
++Documento.
++Placa.
++Teléfono.
++Correo.
++Nombre.
++Caracteres < y >.
++Puesto obligatorio para vehículos mensuales.
++Se encuentran en:
++
++page.tsx
++page.tsx
++validacion.ts
++En backend también se limpian los valores mediante limpiarTexto, limpiarDocumento, limpiarTelefono y limpiarPlaca.
++
++Los endpoints restringen la creación:
++
++Sólo gerente puede crear empleados.
++Sólo gerente puede registrar vehículos mensuales.
++Problemas encontrados
++La validación del servidor no es tan completa como la del frontend:
++
++El endpoint de usuarios convierte el documento con Number(...), pero no valida claramente que tenga entre 6 y 12 dígitos.
++El nombre puede llegar vacío después de la limpieza.
++El correo y teléfono no parecen validarse completamente en el backend.
++La pantalla de empleados asigna automáticamente la contraseña 123456.
++Un usuario puede llamar directamente a la API sin utilizar el formulario del navegador.
++Conclusión:
++El frontend valida correctamente muchos casos, pero el backend debe repetir todas las reglas de obligatoriedad, formato y longitud de forma independiente.
+
+# 2026-09-14 18:22:48.964409
++y
+
+# 2026-09-14 18:24:46.377539
++okey el contenido del archivo que creamos de validarcampos.ts, quiero que lo mandes a, validacion.ts y lo utilicemos desde ahi, ademas encontre esto tambien que es algo que quiero que trabajemos, no dañes el codigo ni hagas repeticiones analiza y integra la mejor opcion:(EL PROBLEMA ENCONTRADO) 3.2 Listado y consultas
++Qué se pide:
++Validar paginación, búsqueda por texto y ordenamiento.
++
++Estado actual: Cumple parcialmente
++
++La paginación está implementada en ambos módulos:
++
++pagina
++tamano
++total
++totalPaginas
++La búsqueda funciona mediante:
++
++Empleados: nombre o documento.
++Vehículos: placa o nombre del propietario.
++Las consultas utilizan parámetros SQL, por ejemplo:
++
++
++Esto ayuda a evitar inyección SQL.
++
++El modelo también admite ordenamiento seguro mediante listas blancas de columnas permitidas.
++
++Problema encontrado
++Aunque los modelos aceptan orden y dir, las interfaces de Empleados y Vehículos no muestran controles para seleccionar la columna ni la dirección de ordenamiento.
++
++Por tanto:
++
++La API soporta ordenamiento.
++El usuario no parece poder activarlo desde la interfaz.
++En la práctica se usa principalmente el orden predeterminado.
++Además, el endpoint GET /api/vehiculos sólo comprueba que exista una sesión, pero no restringe explícitamente el rol. Un cliente que conozca la URL podría consultar vehículos directamente aunque no tenga acceso visual al módulo.
++
++
+
+# 2026-09-14 18:25:39.157519
++y
+
+# 2026-09-14 19:12:47.919301
++analiza bien la estructura del proyecto y mira si incluye esto, si es asi no hagas modificaciones pero si no es asi entonces realiza los cambios respectivos sin dañar nada en el codigo ni hacer duplicaciones, analiza y has el cambio atomico: 4. Módulo de Informes
++4.1 Filtro por Fechas: Probar la selección del rango (desde/hasta) retornando únicamente las transacciones del periodo.
++4.2 Exportación PDF: Verificar que genere un archivo maquetado con encabezado, tabla de datos y números de página.
++4.3 Exportación CSV: Comprobar que el archivo resultante sea delimitado y mantenga la codificación UTF-8 para tildes y caracteres especiales.
+
+# 2026-09-14 19:16:28.631932
++y
+
+# 2026-09-14 20:46:28.105169
++okey ahora quiero que analices ahora esto en el proyecto sin dañar nada de lo que ya exista ni hacer duplicaciones ni errores ni bugs en el programa, teniendo claridad lo que haras y que sea tal cual lo que se te ha pedido: 1. Módulo de Autenticación, Roles y Sesiones
++1.1 Hash de Contraseñas: Verificar que las claves en la BD estén cifradas con algoritmos seguros (bcrypt / argon2). No se admite texto plano.
++1.2 Inicio de Sesión y RBAC: Validar credenciales y comprobar que un usuario no pueda acceder a URLs restringidas fuera de su rol.
++1.3 Expiración de Sesión: Comprobar el cierre automático de sesión por inactividad a los 15 minutos o por el botón de Logout, destruyendo tokens/cookies.
++2. Dashboard Administrativo
++2.1 Métricas Dinámicas (KPIs): Verificar que los contadores y tarjetas principales carguen datos reales desde la BD.
++2.2 Gráficos Estadísticos: Confirmar que las gráficas muestren la distribución agregada de actividades y registros.
++3. Módulos CRUD (Usuarios y Entidad Principal)
++3.1 Creación de Registros (Create): Probar la validación de campos obligatorios en el navegador (frontend) y en el servidor (backend).
++3.2 Listado y Consultas (Read): Validar el funcionamiento de la paginación, filtros de búsqueda por texto y ordenamiento.
++3.3 Modificación (Update): Comprobar que los datos existentes pre-carguen en los formularios y actualicen correctamente.
++3.4 Eliminación Lógica (Soft Delete): Confirmar que el borrado no elimine físicamente los datos, sino que actualice el campo deleted_at o estado = 0.
++4. Módulo de Informes
++4.1 Filtro por Fechas: Probar la selección del rango (desde/hasta) retornando únicamente las transacciones del periodo.
++4.2 Exportación PDF: Verificar que genere un archivo maquetado con encabezado, tabla de datos y números de página.
++4.3 Exportación CSV: Comprobar que el archivo resultante sea delimitado y mantenga la codificación UTF-8 para tildes y caracteres especiales.
++5. Pruebas de Seguridad y Requisitos No Funcionales (RNF)
++5.1 Inyección SQL (SQLi): Probar entradas con caracteres especiales (' OR '1'='1) en campos de búsqueda.
++5.2 Cross-Site Scripting (XSS): Insertar etiquetas <script> en formularios para asegurar que el sistema sanitice la salida.
++5.3 Mitigación CSRF: Verificar que todos los formularios utilicen tokens de validación.
++5.4 Calidad y Arquitectura: Verificar la estructura del proyecto bajo el patrón Modelo-Vista-Controlador (MVC), diseño responsive en dispositivos móviles y tiempos de respuesta del servidor menores a 2 segundos.
+
+# 2026-09-14 20:47:18.450625
++a
+
+# 2026-09-14 20:59:52.399260
++P1. la inactividad solo es para el cliente, P2. el filtro de fecha dejalo asi como esta pero si crees que hay cosas que debas corregir en el proyecto en base a eso haslo, pero sin dañar ni hacer nada malo en el codigo,P3. sameSite=strict en cookie token + Origin check en login basta, P0.okey si implentalo es interesante y necesario, se mide ahora lo de los 2segundo por peticion y cacheSesion lo acotamos en este mismo pase
+
+# 2026-09-14 21:06:15.663215
++explicame en que parte y archivo del codigo puedo encontrar todo lo del punto 5: 5. Pruebas de Seguridad y Requisitos No Funcionales (RNF)
++5.1 Inyección SQL (SQLi): Probar entradas con caracteres especiales (' OR '1'='1) en campos de búsqueda.
++5.2 Cross-Site Scripting (XSS): Insertar etiquetas <script> en formularios para asegurar que el sistema sanitice la salida.
++5.3 Mitigación CSRF: Verificar que todos los formularios utilicen tokens de validación.
++5.4 Calidad y Arquitectura: Verificar la estructura del proyecto bajo el patrón Modelo-Vista-Controlador (MVC), diseño responsive en dispositivos móviles y tiempos de respuesta del servidor menores a 2 segundos.
+
+# 2026-09-14 21:08:24.967450
++a
+
+# 2026-09-14 21:11:29.467050
++No por que por el momento no vamos para produccion
+
+# 2026-09-14 21:12:58.431159
++y
+
+# 2026-09-14 21:28:25.660137
++por que en el modulo de estadisticas el apartado de "Actividad semanal de vehículos" no funciona como estaba funcionando antes de que cuando agregaban autos se iba subiendo la estadistica, lo quiero como estaba y funcional teniendo en cuenta las reglas pasadas que te dide seguridad y TODO, ademas en las tarifas vigentes quiero que sea de acuerdo al tipo de vehiculo seleccionado
+
+# 2026-09-14 21:34:10.863217
++okey pero aun no veo que funcione lo que habia en el apartado de estadisticas lo de la actividad semanal de vehiculos esa estadistica no funciona quiero que funcione y le añadas todos los metodos de seguridad y las indicaciones que te dije pero en esa estadistica de actividad semanal de vehiculos

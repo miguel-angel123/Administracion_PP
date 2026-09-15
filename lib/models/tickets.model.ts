@@ -9,6 +9,8 @@ import { ErrorDominio } from "@/lib/models/errores";
 import { obtenerTarifaPorTipo } from "./tarifas.model";
 // Crea o valida clientes dentro de la transaccion del ticket.
 import { crearClienteSiNoExiste } from "./usuarios.model";
+// Validaciones de formato con lanzamiento de error para el backend.
+import { exigirPlaca, exigirDocumento, exigirTelefono } from "@/lib/validacion";
 
 // Opciones del listado paginado de tickets.
 interface OpcionesListado {
@@ -167,6 +169,10 @@ export async function crearTicket(datos: {
     throw new ErrorDominio("Faltan placa o puesto");
   }
 
+  // Formato de placa: un caller directo (script, futuro server action) podía
+  // colar "A1" o "AAAAAA" porque solo se verificaba no-vacío.
+  exigirPlaca(placaLimpia);
+
   // Reserva conexion concreta para la transaccion.
   const cliente = await pool.connect();
   // Indica si el flujo creo o revivio un cliente.
@@ -313,6 +319,9 @@ export async function crearTicket(datos: {
       // El operador pudo corregir el teléfono del propietario. El UPDATE
       // condicional evita escrituras cuando el valor no cambió.
       if (telefono) {
+        // El route ya limpia (limpiarTelefono), pero un caller directo debe
+        // toparse con la regla: antes teléfono "abc" entraba al UPDATE.
+        exigirTelefono(telefono);
         await cliente.query(
           `UPDATE usuarios SET telefono = $1
            WHERE documento = $2 AND telefono <> $1`,
@@ -329,6 +338,11 @@ export async function crearTicket(datos: {
       if (!telefono) {
         throw new ErrorDominio("Ingrese teléfono del propietario para el vehículo diario");
       }
+
+      // Formato de doc/teléfono: la obligatoriedad ya se validó arriba, acá
+      // se aprieta el formato para que "12" o "abc" no lleguen a la BD.
+      exigirDocumento(doc_propietario);
+      exigirTelefono(telefono);
 
       // Documento numerico del propietario nuevo/existente.
       const docFinal = Number(doc_propietario);

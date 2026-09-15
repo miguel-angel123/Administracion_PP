@@ -54,8 +54,9 @@ export async function POST() {
     path: "/",
     // Fecha Unix inicial: hace que el navegador elimine la cookie.
     expires: new Date(0),
-    // Mismo sameSite que login.
-    sameSite: "lax",
+    // Debe coincidir con login: si un navegador ve sameSite distinto en el
+    // Set-Cookie de borrado, puede ignorarlo y la cookie sobrevive.
+    sameSite: "strict",
     // Mismo secure que login.
     secure: process.env.NODE_ENV === "production",
   });

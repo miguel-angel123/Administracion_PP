@@ -16,6 +16,12 @@ export async function GET(
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
+    // El detalle de un ticket incluye placa, documento, teléfono y puesto:
+    // un cliente con la URL directa podía leer cualquier ticket ajeno.
+    if (sesion.role !== "gerente" && sesion.role !== "empleado") {
+      return NextResponse.json({ error: "Prohibido" }, { status: 403 });
+    }
+
     await ensureSeed();
     const { id } = await params;
 

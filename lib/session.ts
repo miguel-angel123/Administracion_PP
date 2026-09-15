@@ -31,6 +31,9 @@ export interface Sesion {
 const cacheSesion = new Map<string, { sesion: Sesion; expira: number }>();
 // Tiempo maximo que una sesion puede vivir en cache antes de consultar la BD.
 const TTL_MS = 60_000;
+// Sin tope, el Map crece con cada documento distinto hasta agotar memoria
+// en instancias serverless longevas. 500 entradas × ~200 B ≈ 100 KB.
+const MAX_CACHE = 500;
 
 // Funcion central del backend para saber quien esta haciendo la peticion.
 export async function getSesion(): Promise<Sesion | null> {
@@ -99,6 +102,13 @@ export async function getSesion(): Promise<Sesion | null> {
     // Estado desde tabla estados.
     estado: rows[0].estado,
   };
+
+  // FIFO: Map preserva orden de inserción; al desbordar se descarta la entrada
+  // más antigua. Es un LRU aproximado suficiente: la siguiente request la repuebla.
+  if (cacheSesion.size >= MAX_CACHE) {
+    const masVieja = cacheSesion.keys().next().value;
+    if (masVieja !== undefined) cacheSesion.delete(masVieja);
+  }
 
   // Guarda la sesion en cache por 60 segundos.
   cacheSesion.set(payload.doc, { sesion, expira: Date.now() + TTL_MS });

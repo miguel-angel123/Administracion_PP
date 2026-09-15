@@ -7,6 +7,11 @@ import { ErrorDominio } from "./errores";
 // (app/sugerencias/page.tsx) y con el valor por defecto del INSERT.
 const ESTADOS_SUGERENCIA = ["pendiente", "leída"];
 
+// Límite del mensaje. El route ya trunca con limpiarTexto(_, 1000), pero un
+// caller directo (script, futura server action) debe ser rechazado en vez de
+// guardar silenciosamente un texto más largo.
+const MAX_TEXTO = 1000;
+
 // Lista sugerencias. Si esCliente=true se añade el filtro por documento.
 // Nota: se construye dinámicamente el WHERE y los parámetros.
 // ORDER BY lleva desempate por PK: fecha es TIMESTAMP de segundo y dos filas
@@ -49,6 +54,9 @@ export async function crearSugerencia(docUsuario: number, texto: string, resena 
   const textoLimpio = String(texto || "").trim();
   if (!textoLimpio) {
     throw new ErrorDominio("El texto es obligatorio", 400);
+  }
+  if (textoLimpio.length > MAX_TEXTO) {
+    throw new ErrorDominio(`El texto no puede superar ${MAX_TEXTO} caracteres`, 400);
   }
 
   // Number() antes del check: un "3" de un form viaja como string y

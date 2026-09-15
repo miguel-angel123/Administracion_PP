@@ -8,6 +8,8 @@ import bcrypt from "bcryptjs";
 import pool from "@/lib/db";
 // ErrorDominio permite devolver errores HTTP controlados desde APIs.
 import { ErrorDominio } from "./errores";
+// Validaciones de formato con lanzamiento de error para el backend.
+import { exigirDocumento, exigirTelefono, exigirCorreo, exigirTextoObligatorio } from "@/lib/validacion";
 
 // Contratos de entrada.
 // Datos esperados para crear o actualizar empleados.
@@ -184,6 +186,13 @@ export async function obtenerUsuarioConRol(doc: number, client?: PoolClient) {
 // El upsert también promueve un doc existente a rol "empleado": un cliente
 // registrado con el mismo documento cambia de rol sin rama adicional.
 export async function crearEmpleado(datos: DatosEmpleado) {
+  // Valida formato antes de tocar la BD: la FK de rol no protege contra un
+  // documento 0 (proveniente de limpiarDocumento("abc") → Number("") = 0).
+  exigirDocumento(datos.doc);
+  const nombreLimpio = exigirTextoObligatorio(datos.nombre, "El nombre", 100);
+  if (datos.telefono) exigirTelefono(datos.telefono);
+  if (datos.correo) exigirCorreo(datos.correo);
+
   // Determina si el caller envio una contrasena real.
   const passwordProvided =
     typeof datos.password === "string" && datos.password.length > 0;
@@ -244,7 +253,7 @@ export async function crearEmpleado(datos: DatosEmpleado) {
      RETURNING documento AS doc`,
     [
       datos.doc,
-      datos.nombre,
+      nombreLimpio,
       datos.telefono || "",
       datos.correo || "",
       hash,
@@ -272,6 +281,17 @@ export async function actualizarUsuario(
     estado?: string;
   }
 ) {
+  // Normaliza y valida lo que llegue: un PATCH sin pasar por el formulario
+  // antes colaba correo "noesunmail" o nombre vacío directo al UPDATE.
+  if (cambios.nombre !== undefined) {
+    cambios.nombre = exigirTextoObligatorio(cambios.nombre, "El nombre", 100);
+  }
+  if (cambios.telefono !== undefined && cambios.telefono) exigirTelefono(cambios.telefono);
+  if (cambios.correo !== undefined && cambios.correo) exigirCorreo(cambios.correo);
+  if (cambios.cargo !== undefined && cambios.cargo) {
+    cambios.cargo = exigirTextoObligatorio(cambios.cargo, "El cargo", 50);
+  }
+
   // Fragmentos SET dinamicos del UPDATE.
   const sets: string[] = [];
   // Valores parametrizados en el mismo orden que los SET.

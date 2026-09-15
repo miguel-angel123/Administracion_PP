@@ -5,6 +5,8 @@ import { C } from "@/lib/tema";
 import { Tarjeta, Etiqueta, Boton } from "@/lib/componentes";
 import { useDebounce } from "@/lib/useDebounce";
 import { useLiveData } from "@/lib/live/useLiveData";
+import { alertaAdvertencia } from "@/lib/alerta";
+import { filasACSV, descargarCSV, exportarReportePDF } from "@/lib/exportar";
 
 interface LogEntry {
   id: number;
@@ -64,6 +66,61 @@ export default function RegistrosPage() {
 
   useLiveData(load, 5000);
 
+  // Trae TODAS las filas filtradas (sin paginar). El backend ya soporta el modo
+  // con paginado=0 y aplica el tope de 10 000.
+  const fetchTodas = useCallback(async () => {
+    const params = new URLSearchParams({ orden, dir, paginado: "0" });
+    if (desde) params.set("desde", desde);
+    if (hasta) params.set("hasta", hasta);
+    if (searchDebounced.trim()) params.set("buscar", searchDebounced.trim());
+
+    const res = await fetch(`/api/registros?${params.toString()}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.datos ?? []) as LogEntry[];
+  }, [desde, hasta, orden, dir, searchDebounced]);
+
+  const sufijoArchivo = () =>
+    `_${desde || "inicio"}_${hasta || "hoy"}`;
+
+  const exportarCSV = async () => {
+    const filas = await fetchTodas();
+    if (filas.length === 0) {
+      alertaAdvertencia("No hay registros para exportar con los filtros actuales.");
+      return;
+    }
+    const contenido = filasACSV(
+      ["id", "tipo", "usuario", "accion", "fecha"],
+      filas as unknown as Record<string, unknown>[]
+    );
+    descargarCSV(`registros${sufijoArchivo()}.csv`, contenido);
+  };
+
+  const exportarPDF = async () => {
+    const filas = await fetchTodas();
+    if (filas.length === 0) {
+      alertaAdvertencia("No hay registros para exportar con los filtros actuales.");
+      return;
+    }
+    const rango = desde || hasta
+      ? `${desde || "inicio"} – ${hasta || "hoy"}`
+      : "Sin filtro de fechas";
+
+    await exportarReportePDF({
+      titulo: "Registros del sistema",
+      subtitulo: `Parqueadero La Pradera · ${rango} · ${filas.length} registros`,
+      columnas: [
+        { encabezado: "ID",      ancho: 40,  alinear: "center" },
+        { encabezado: "Tipo",    ancho: 70,  alinear: "center" },
+        { encabezado: "Usuario", ancho: 120 },
+        { encabezado: "Acción",  ancho: 200 },
+        { encabezado: "Fecha",   ancho: 90,  alinear: "center" },
+      ],
+      filas: filas.map(f => [f.id, f.tipo, f.usuario, f.accion, f.fecha]),
+      nombreArchivo: `registros${sufijoArchivo()}`,
+    });
+  };
+
   const alternarOrden = (col: OrdenCol) => {
     if (orden === col) {
       setDir(d => (d === "asc" ? "desc" : "asc"));
@@ -95,9 +152,15 @@ export default function RegistrosPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 24 }}>Módulo Registros (Logs)</h2>
-        <p style={{ color: C.sub, fontSize: 14 }}>— {total} movimientos</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h2 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 24 }}>Módulo Registros (Logs)</h2>
+          <p style={{ color: C.sub, fontSize: 14 }}>— {total} movimientos</p>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Boton small variant="outline" onClick={exportarCSV}>Exportar CSV</Boton>
+          <Boton small variant="outline" onClick={exportarPDF}>Exportar PDF</Boton>
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>

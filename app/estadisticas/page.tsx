@@ -27,6 +27,12 @@ interface TarifaPorTipo {
   valor_mes: number | null;
 }
 
+interface TipoVehiculo {
+  id: string;
+  nombre: string;
+  icono: string;
+}
+
 const ETIQUETA_MODALIDAD: Record<string, string> = {
   por_hora: "Por hora",
   diario: "Diario",
@@ -53,12 +59,15 @@ export default function EstadisticasPage() {
   });
 
   const [tarifas, setTarifas] = useState<TarifaPorTipo[]>([]);
+  const [tipos, setTipos] = useState<TipoVehiculo[]>([]);
+  const [tipoSeleccionado, setTipoSeleccionado] = useState("");
 
   const load = useCallback(async () => {
     try {
-      const [statsRes, tarifasRes] = await Promise.all([
+      const [statsRes, tarifasRes, tiposRes] = await Promise.all([
         fetch("/api/estadisticas").then(r => r.json()),
         fetch("/api/tarifas").then(r => r.json()),
+        fetch("/api/vehiculos?recurso=tipos").then(r => r.json()),
       ]);
 
       setStats({
@@ -75,6 +84,13 @@ export default function EstadisticasPage() {
       });
 
       if (Array.isArray(tarifasRes)) setTarifas(tarifasRes);
+
+      if (Array.isArray(tiposRes)) {
+        setTipos(tiposRes);
+        // Preselección solo la primera carga; el polling (15 s) no debe resetear
+        // la elección del usuario.
+        setTipoSeleccionado(prev => prev || (tiposRes[0]?.id ?? ""));
+      }
     } catch {
       // Mantiene valores iniciales
     }
@@ -85,6 +101,10 @@ export default function EstadisticasPage() {
   const dias = stats.ingresosSemanales.map(d => d.dia);
   const data = stats.ingresosSemanales.map(d => d.total);
   const maxD = data.length ? Math.max(...data) || 1 : 1;
+
+  const tarifasVisibles = tipoSeleccionado
+    ? tarifas.filter(t => String(t.tipo_vehiculo_id) === tipoSeleccionado)
+    : tarifas;
 
   return (
     <div>
@@ -101,7 +121,7 @@ export default function EstadisticasPage() {
 
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}>
         <Tarjeta>
-          <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 20 }}>Ingresos semanales de vehículos</h3>
+          <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 20 }}>Actividad semanal de vehículos</h3>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: 160 }}>
             {dias.map((d, i) => (
               <div key={d} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
@@ -113,10 +133,22 @@ export default function EstadisticasPage() {
           </div>
         </Tarjeta>
         <Tarjeta>
-          <h3 style={{ fontFamily: "Syne", fontWeight: 700, marginBottom: 16 }}>Tarifas vigentes</h3>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <h3 style={{ fontFamily: "Syne", fontWeight: 700 }}>Tarifas vigentes</h3>
+            <select
+              value={tipoSeleccionado}
+              onChange={e => setTipoSeleccionado(e.target.value)}
+              style={{ maxWidth: 180 }}
+            >
+              <option value="">Todos</option>
+              {tipos.map(tv => (
+                <option key={tv.id} value={tv.id}>{tv.icono} {tv.nombre}</option>
+              ))}
+            </select>
+          </div>
           <div style={{ maxHeight: 220, overflowY: "auto" }}>
-            {tarifas.length > 0 ? (
-              tarifas.map(t => {
+            {tarifasVisibles.length > 0 ? (
+              tarifasVisibles.map(t => {
                 const valor = valorDeTarifa(t);
                 return (
                   <div key={t.id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
@@ -130,7 +162,9 @@ export default function EstadisticasPage() {
                 );
               })
             ) : (
-              <p style={{ color: C.sub, fontSize: 13 }}>Cargando tarifas…</p>
+              <p style={{ color: C.sub, fontSize: 13 }}>
+                {tarifas.length === 0 ? "Cargando tarifas…" : "Sin tarifas para este tipo."}
+              </p>
             )}
           </div>
           <div style={{ marginTop: 14 }}>

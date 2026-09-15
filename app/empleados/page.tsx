@@ -27,6 +27,8 @@ interface RespuestaPaginada<T> {
   totalPaginas: number;
 }
 
+type OrdenCol = "nombre" | "cargo" | "documento";
+
 const TAMANO = 20;
 
 export default function EmpleadosPage() {
@@ -35,6 +37,8 @@ export default function EmpleadosPage() {
   const [modal, setModal] = useState<string | null>(null);
   const [form, setForm] = useState<Partial<EmpleadoDB>>({});
   const [search, setSearch] = useState("");
+  const [orden, setOrden] = useState<OrdenCol>("nombre");
+  const [dir, setDir] = useState<"asc" | "desc">("asc");
   const [pagina, setPagina] = useState(1);
   const [total, setTotal] = useState(0);
   const [totalPaginas, setTotalPaginas] = useState(1);
@@ -46,6 +50,8 @@ export default function EmpleadosPage() {
       rol: "empleado",
       pagina: String(pagina),
       tamano: String(TAMANO),
+      orden,
+      dir,
     });
     if (searchDebounced.trim()) params.set("buscar", searchDebounced.trim());
 
@@ -54,7 +60,7 @@ export default function EmpleadosPage() {
     setEmpleados(Array.isArray(data.datos) ? data.datos : []);
     setTotal(data.total ?? 0);
     setTotalPaginas(data.totalPaginas ?? 1);
-  }, [pagina, searchDebounced]);
+  }, [pagina, searchDebounced, orden, dir]);
 
   useLiveData(load, 20_000);
 
@@ -155,7 +161,33 @@ export default function EmpleadosPage() {
         {user?.role === "gerente" && <Boton onClick={openCreate}>+ Nuevo Empleado</Boton>}
       </div>
 
-      <input value={search} onChange={e => cambiarBusqueda(e.target.value)} placeholder="Buscar empleado…" style={{ maxWidth: 300, marginBottom: 16 }} />
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <input
+          value={search}
+          onChange={e => cambiarBusqueda(e.target.value)}
+          placeholder="Buscar empleado…"
+          style={{ maxWidth: 300 }}
+        />
+        <select
+          value={orden}
+          onChange={e => { setOrden(e.target.value as OrdenCol); setPagina(1); }}
+          title="Ordenar por"
+          style={{ maxWidth: 170 }}
+        >
+          <option value="nombre">Nombre</option>
+          <option value="cargo">Cargo</option>
+          <option value="documento">Documento</option>
+        </select>
+        <select
+          value={dir}
+          onChange={e => { setDir(e.target.value as "asc" | "desc"); setPagina(1); }}
+          title="Dirección"
+          style={{ maxWidth: 150 }}
+        >
+          <option value="asc">Ascendente ▲</option>
+          <option value="desc">Descendente ▼</option>
+        </select>
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 14 }}>
         {empleados.map(emp => (

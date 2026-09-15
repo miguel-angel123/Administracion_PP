@@ -13,6 +13,13 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
+    // Listado de tickets solo para personal operativo. Sin este guard un
+    // cliente autenticado alcanzaba el listado con la URL directa y veía
+    // datos de todos los propietarios y vehículos.
+    if (sesion.role !== "gerente" && sesion.role !== "empleado") {
+      return NextResponse.json({ error: "Prohibido" }, { status: 403 });
+    }
+
     await ensureSeed();
 
     const { searchParams } = new URL(req.url);

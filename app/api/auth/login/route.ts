@@ -17,6 +17,22 @@ import { respuestaError } from "@/lib/erroresHttp";
 // Handler POST de /api/auth/login.
 export async function POST(req: Request) {
   try {
+    // Bloquea login-CSRF: el navegador SIEMPRE envía Origin en POST JSON.
+    // Solo se rechaza si viene un Origin que no coincide con el host.
+    const origin = req.headers.get("origin");
+    const host = req.headers.get("host");
+    if (origin && host) {
+      let originHost: string;
+      try {
+        originHost = new URL(origin).host;
+      } catch {
+        return NextResponse.json({ ok: false, error: "Origen inválido" }, { status: 403 });
+      }
+      if (originHost !== host) {
+        return NextResponse.json({ ok: false, error: "Origen no permitido" }, { status: 403 });
+      }
+    }
+
     // Garantiza que existan datos mínimos (roles, estados, usuarios demo) antes de autenticar.
     await ensureSeed();
 
@@ -110,14 +126,17 @@ export async function POST(req: Request) {
     const res = NextResponse.json({ ok: true, user });
 
     // Cookie httpOnly: el navegador no puede leerla desde JS (mitiga XSS).
-    // sameSite lax permite navegación normal; secure solo en producción (HTTPS).
+    // sameSite strict evita que el navegador adjunte el token en cualquier
+    // request cross-site (login-CSRF, hotlinking). Debe coincidir con logout
+    // para que el borrado de cookie funcione en todos los navegadores.
+    // secure solo en producción (HTTPS).
     res.cookies.set("token", token, {
       // Impide que JavaScript del navegador lea el JWT.
       httpOnly: true,
       // En produccion exige HTTPS.
       secure: process.env.NODE_ENV === "production",
-      // Reduce envio en contextos cross-site.
-      sameSite: "lax",
+      // No se envía en navegaciones/requests cross-site.
+      sameSite: "strict",
       // Ocho horas en segundos.
       maxAge: 60 * 60 * 8,
       // Cookie disponible en toda la app.

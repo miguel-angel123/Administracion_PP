@@ -20,6 +20,12 @@ export async function GET(
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
+    // El modal de tickets (gerente/empleado) es el único consumidor. Un cliente
+    // conociendo la URL obtendría datos de propietario sin permiso.
+    if (sesion.role !== "gerente" && sesion.role !== "empleado") {
+      return NextResponse.json({ error: "Prohibido" }, { status: 403 });
+    }
+
     await ensureSeed();
     const { placa } = await params;
 

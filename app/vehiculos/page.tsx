@@ -39,6 +39,8 @@ interface RespuestaPaginada<T> {
   totalPaginas: number;
 }
 
+type OrdenCol = "placa" | "nombre" | "tipo" | "estado" | "ingreso";
+
 const TAMANO = 20;
 
 export default function VehiculosPage() {
@@ -47,6 +49,8 @@ export default function VehiculosPage() {
   const [puestos, setPuestos] = useState<PuestoDB[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("todos");
+  const [orden, setOrden] = useState<OrdenCol>("placa");
+  const [dir, setDir] = useState<"asc" | "desc">("asc");
   const [pagina, setPagina] = useState(1);
   const [total, setTotal] = useState(0);
   const [totalPaginas, setTotalPaginas] = useState(1);
@@ -67,6 +71,8 @@ export default function VehiculosPage() {
       pagina: String(pagina),
       tamano: String(TAMANO),
       filtro: filter,
+      orden,
+      dir,
     });
     if (searchDebounced.trim()) params.set("buscar", searchDebounced.trim());
 
@@ -75,7 +81,7 @@ export default function VehiculosPage() {
     setVehiculos(Array.isArray(data.datos) ? data.datos : []);
     setTotal(data.total ?? 0);
     setTotalPaginas(data.totalPaginas ?? 1);
-  }, [pagina, filter, searchDebounced]);
+  }, [pagina, filter, searchDebounced, orden, dir]);
 
   const loadPuestos = async () => {
     const res = await fetch("/api/vehiculos?recurso=puestos");
@@ -227,6 +233,27 @@ export default function VehiculosPage() {
 
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <input value={search} onChange={e => cambiarBusqueda(e.target.value)} placeholder="Buscar por placa o nombre…" style={{ maxWidth: 280 }} />
+        <select
+          value={orden}
+          onChange={e => { setOrden(e.target.value as OrdenCol); setPagina(1); }}
+          title="Ordenar por"
+          style={{ maxWidth: 160 }}
+        >
+          <option value="placa">Placa</option>
+          <option value="nombre">Propietario</option>
+          <option value="tipo">Tipo</option>
+          <option value="estado">Estado</option>
+          <option value="ingreso">Ingreso</option>
+        </select>
+        <select
+          value={dir}
+          onChange={e => { setDir(e.target.value as "asc" | "desc"); setPagina(1); }}
+          title="Dirección"
+          style={{ maxWidth: 150 }}
+        >
+          <option value="asc">Ascendente ▲</option>
+          <option value="desc">Descendente ▼</option>
+        </select>
         {["todos", "mensual", "diario", "activo", "inactivo"].map(f => (
           <button key={f} onClick={() => cambiarFiltro(f)} style={{
             padding: "8px 14px", borderRadius: 8, border: `1px solid ${filter === f ? C.accent : C.border}`,
