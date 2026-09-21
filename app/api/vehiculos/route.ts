@@ -96,6 +96,8 @@ export async function POST(req: Request) {
       telefono: limpiarTelefono(body.telefono) || undefined,
       color: limpiarTexto(body.color, 30) || undefined,
       puestosIdPuesto: body.puestosIdPuesto,
+      precio: body.precio,
+      diaPago: body.diaPago,
     });
 
     const mensaje = resultado.clienteCreado

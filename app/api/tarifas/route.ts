@@ -15,8 +15,6 @@ export async function GET() {
 
     await ensureSeed();
 
-    // Única forma de listado: una fila por tarifa real (modalidad × tipo).
-    // La vista agregada por modalidad se eliminó junto con listarTarifasParaVista.
     return NextResponse.json(await tarifasModel.listarTarifasPorTipo());
   } catch (e) {
     return respuestaError(e);
@@ -45,6 +43,7 @@ export async function POST(req: Request) {
       tipoVehiculoId: body.tipoVehiculoId,
       modalidad: body.modalidad,
       valorHora: body.valorHora,
+      valorMinuto: body.valorMinuto,
       valorDia: body.valorDia,
       valorMes: body.valorMes,
     });

@@ -87,7 +87,7 @@ export async function listarVehiculos(opts: OpcionesListado = {}) {
     nombre: "u.nombre",
     tipo: "t.tipo_vehiculo",
     estado: "e.nombre_estado",
-    ingreso: "ingreso",
+    ingreso: "ingreso",   
   };
   // Columna segura para ORDER BY.
   const col = cols[opts.orden || "placa"] || "v.placa";
@@ -97,13 +97,16 @@ export async function listarVehiculos(opts: OpcionesListado = {}) {
   // El COUNT sólo necesita `vehiculos` (y `usuarios` si hay búsqueda por
   // nombre). El filtro de estado ya no exige joins: es una columna de vehiculos.
   const joinUsuariosCount = hayBuscar
-    ? `JOIN usuarios u ON u.documento = v.usuarios_documento`
+    ? ` Join usuarios u ON u.documento = v.usuarios_documento`
     : "";
 
   // El estado sale directo de `e.nombre_estado`. El LATERAL de ult_contrato
-  // sigue trayendo ingreso/fin/puesto (para mensual) y el de ult_ticket
-  // ingreso/salida/puesto del parqueo actual (para diario): son datos que
-  // ninguna columna de vehiculos guarda.
+  // sigue trayendo ingreso/fin/puesto y las condiciones económicas (para
+  // mensual) y el de ult_ticket ingreso/salida/puesto del parqueo actual
+  // (para diario): son datos que ninguna columna de vehiculos guarda.
+  //
+  // `pagado` mensual se calcula contra pagado_mes: al cambiar de mes, el bool
+  // histórico deja de contar aunque siga en TRUE en la BD.
   const [total, { rows }] = await Promise.all([
     pool.query(
       `SELECT COUNT(*)::int AS total
@@ -122,6 +125,7 @@ export async function listarVehiculos(opts: OpcionesListado = {}) {
          t.tipo_vehiculo AS tipo,
          e.nombre_estado AS estado,
          v.color,
+         tv.nombre AS clase_vehiculo,
          COALESCE(
            CASE WHEN t.tipo_vehiculo = 'mensual'
              THEN TO_CHAR(ult_contrato.fecha_inicio, 'DD-MM-YYYY HH24:MI')
@@ -136,13 +140,25 @@ export async function listarVehiculos(opts: OpcionesListado = {}) {
            CASE WHEN t.tipo_vehiculo = 'mensual'
              THEN ult_contrato.numero_puesto::text
              ELSE ult_ticket.numero_puesto::text
-           END, '—') AS puesto
+           END, '—') AS puesto,
+         COALESCE(CASE WHEN t.tipo_vehiculo = 'mensual' THEN ult_contrato.precio END,
+                  NULL)::float AS precio,
+         COALESCE(CASE WHEN t.tipo_vehiculo = 'mensual' THEN ult_contrato.dia_pago END,
+                  NULL)::int   AS dia_pago,
+         COALESCE(
+           CASE WHEN t.tipo_vehiculo = 'mensual'
+                THEN (ult_contrato.pagado AND ult_contrato.pagado_mes = TO_CHAR(NOW(), 'YYYY-MM'))
+                ELSE ult_ticket.pagado
+           END,
+           FALSE)       AS pagado
        FROM vehiculos v
        JOIN usuarios u ON u.documento = v.usuarios_documento
        JOIN tarifa t ON t.id_tarifa = v.tarifa_id_tarifa
        JOIN estados e ON e.id_estado = v.estados_id_estado
+       LEFT JOIN tipos_vehiculo tv ON tv.id_tipo_vehiculo = t.tipo_vehiculo_id
        LEFT JOIN LATERAL (
-         SELECT c.fecha_inicio, c.fecha_fin, p.numero_puesto
+         SELECT c.fecha_inicio, c.fecha_fin, p.numero_puesto,
+                c.precio, c.dia_pago, c.pagado, c.pagado_mes
          FROM contratos c
          LEFT JOIN puestos p ON p.id_puesto = c.puestos_id_puesto
          WHERE c.vehiculos_placa = v.placa
@@ -151,7 +167,8 @@ export async function listarVehiculos(opts: OpcionesListado = {}) {
          LIMIT 1
        ) ult_contrato ON t.tipo_vehiculo = 'mensual'
        LEFT JOIN LATERAL (
-         SELECT tik.id_ticket AS id, tik.fecha_ingreso, tik.fecha_salida, p.numero_puesto
+         SELECT tik.id_ticket AS id, tik.fecha_ingreso, tik.fecha_salida,
+                p.numero_puesto, tik.pagado
          FROM tickets tik
          LEFT JOIN puestos p ON p.id_puesto = tik.puestos_id_puesto
          WHERE tik.vehiculos_placa = v.placa
@@ -220,7 +237,8 @@ export async function obtenerVehiculoPorPlaca(placa: string) {
 //      `vehiculos`: el INSERT choca y el catch traduce el 23505).
 //   2. Si el propietario no existe, se crea como cliente.
 //   3. Se asocia la tarifa mensual vigente y un puesto libre obligatorio.
-//   4. Se genera un contrato de 1 mes desde NOW() y se ocupa el puesto.
+//   4. Se genera un contrato de 1 mes desde NOW(), con su precio y día de pago,
+//      y se ocupa el puesto.
 //
 // Validaciones, alta del cliente y las tres escrituras van DENTRO de la misma
 // transacción, con FOR UPDATE sobre el puesto. Antes vivían fuera del BEGIN:
@@ -234,13 +252,30 @@ export async function registrarVehiculoMensual(datos: {
   telefono?: string;
   color?: string;
   puestosIdPuesto?: number | string;
+  precio?: number | string;
+  diaPago?: number | string;
 }) {
   // Extrae campos y define color por defecto.
-  const { placa, doc, nombre, telefono, color = "No especificado", puestosIdPuesto } = datos;
+  const {
+    placa, doc, nombre, telefono, color = "No especificado",
+    puestosIdPuesto, precio, diaPago,
+  } = datos;
   // Normaliza placa antes de guardar.
   const placaLimpia = String(placa || "").toUpperCase().trim();
   // Convierte id de puesto a numero.
   const puestoId = Number(puestosIdPuesto);
+
+  // Precio mensual: opcional, pero si llega debe ser un numero no negativo.
+  const precioNum = precio !== undefined && precio !== "" ? Number(precio) : null;
+  if (precioNum !== null && (!Number.isFinite(precioNum) || precioNum < 0)) {
+    throw new ErrorDominio("El precio debe ser mayor o igual a 0", 400);
+  }
+
+  // Día de pago: opcional, dentro del mes calendario.
+  const diaPagoNum = diaPago !== undefined && diaPago !== "" ? Number(diaPago) : null;
+  if (diaPagoNum !== null && (!Number.isInteger(diaPagoNum) || diaPagoNum < 1 || diaPagoNum > 31)) {
+    throw new ErrorDominio("El día de pago debe estar entre 1 y 31", 400);
+  }
 
   // Validacion minima de placa/documento.
   if (!placaLimpia || !doc) {
@@ -337,10 +372,10 @@ export async function registrarVehiculoMensual(datos: {
       `INSERT INTO contratos (
          tarifa_id_tarifa, vehiculos_placa, usuarios_documento,
          estados_id_estado, fecha_inicio, fecha_fin,
-         puestos_id_puesto
+         puestos_id_puesto, precio, dia_pago
        )
-       VALUES ($1, $2, $3, $4, NOW(), NOW() + INTERVAL '1 month', $5)`,
-      [tarifaId, placaLimpia, docFinal, estadoId, puestoId]
+       VALUES ($1, $2, $3, $4, NOW(), NOW() + INTERVAL '1 month', $5, $6, $7)`,
+      [tarifaId, placaLimpia, docFinal, estadoId, puestoId, precioNum, diaPagoNum]
     );
 
     // Marca el puesto como ocupado.
@@ -385,14 +420,25 @@ export async function registrarVehiculoMensual(datos: {
   };
 }
 
-// Actualiza un vehículo: estado, color, nombre del propietario y/o puesto del contrato.
+// Actualiza un vehículo: estado, color, nombre del propietario, puesto del
+// contrato (o del ticket abierto), condiciones económicas y clase (tarifa).
 // Todo va en una transacción: si algo falla, no queda un cambio parcial.
 // - estado: "activo" | "inactivo".
-//   * Al pasar a "inactivo" se liberan los puestos de tickets abiertos,
-//     pero NO el puesto del contrato (queda reservado para el cliente).
+//   * Al pasar a "inactivo" se liberan tanto los puestos de tickets abiertos
+//     como el del contrato vigente: el vehículo sale del mapa y su puesto
+//     queda realmente disponible.
+//   * Al pasar a "activo" se reocupa el puesto del contrato vigente si sigue
+//     libre (si otro vehículo lo tomó mientras estaba inactivo, no se pisa).
 // - color: cambia el color del vehículo.
 // - nombre: cambia el nombre del propietario (vive en usuarios).
-// - puestosIdPuesto: (solo mensual) reasigna el puesto del contrato vigente.
+// - puestosIdPuesto: reasigna el puesto del contrato vigente (mensual) o del
+//   ticket abierto (diario). El origen se decide en runtime.
+// - precio / diaPago: condiciones del contrato vigente (solo mensual).
+// - pagado: contrato vigente (mensual) o ticket abierto (diario).
+//   En mensual, marcar pagado sella `pagado_mes` con el mes en curso; marcar
+//   pendiente lo borra. Al cambiar de mes el tooltip pasa a "Pendiente" sin
+//   tocar el bool histórico.
+// - clase: nombre del tipo de vehículo; reasigna la tarifa vigente.
 export async function actualizarVehiculo(
   placa: string,
   cambios: {
@@ -400,10 +446,14 @@ export async function actualizarVehiculo(
     color?: string;
     nombre?: string;
     puestosIdPuesto?: number;
+    precio?: number;
+    diaPago?: number;
+    pagado?: boolean;
+    clase?: string;
   }
 ) {
   // Extrae los cambios permitidos.
-  const { estado, color, nombre, puestosIdPuesto } = cambios;
+  const { estado, color, nombre, puestosIdPuesto, precio, diaPago, pagado, clase } = cambios;
   // Reserva conexion para transaccion.
   const cliente = await pool.connect();
 
@@ -411,16 +461,18 @@ export async function actualizarVehiculo(
     // Inicia transaccion.
     await cliente.query("BEGIN");
 
-    // Fail-fast: si el caller reasigna puesto, verificar el contrato vigente y
-    // leer su puesto actual ANTES de tocar vehiculos/usuarios/puestos. Un
-    // vehículo sin contrato hacía varios UPDATEs antes de fallar y el ROLLBACK
-    // deshacía todo, quemando locks sin motivo. Una sola lectura sirve para
-    // validar y para conocer el puesto que hay que liberar después.
+    // Fail-fast: si el caller reasigna puesto, verificar el contrato vigente
+    // (o, si no hay, el ticket abierto) y leer su puesto actual ANTES de tocar
+    // vehiculos/usuarios/puestos. Un vehículo sin ocupación hacía varios
+    // UPDATEs antes de fallar y el ROLLBACK deshacía todo, quemando locks sin
+    // motivo. Una sola lectura sirve para validar y para conocer el puesto que
+    // hay que liberar después.
     const reasigna = puestosIdPuesto !== undefined && !Number.isNaN(Number(puestosIdPuesto));
-    // Puesto actual del contrato vigente, si se va a reasignar.
+    // Puesto actual del contrato o ticket, si se va a reasignar.
     let puestoAnteriorId: number | null = null;
+    // De dónde viene la ocupación: define dónde escribir el nuevo puesto.
+    let origenOcupacion: "contrato" | "ticket" | null = null;
 
-    // Si se reasigna puesto, primero valida que exista contrato vigente.
     if (reasigna) {
       const contratoVigente = await cliente.query(
         `SELECT puestos_id_puesto
@@ -432,14 +484,130 @@ export async function actualizarVehiculo(
          LIMIT 1`,
         [placa]
       );
-      if (!contratoVigente.rows.length) {
-        throw new ErrorDominio(
-          "El vehículo no tiene contrato vigente para reasignar puesto",
-          404
+
+      if (contratoVigente.rows.length) {
+        origenOcupacion = "contrato";
+        puestoAnteriorId = contratoVigente.rows[0].puestos_id_puesto;
+      } else {
+        // Sin contrato vigente se cae al ticket abierto: un diario en el
+        // parqueadero también debe poder reasignarse desde el mapa.
+        const ticketAbierto = await cliente.query(
+          `SELECT puestos_id_puesto
+           FROM tickets
+           WHERE vehiculos_placa = $1
+             AND fecha_salida IS NULL
+             AND fecha_eliminado IS NULL
+           ORDER BY fecha_ingreso DESC
+           LIMIT 1`,
+          [placa]
         );
+        if (!ticketAbierto.rows.length) {
+          throw new ErrorDominio(
+            "El vehículo no tiene contrato ni ticket vigente para reasignar puesto",
+            404
+          );
+        }
+        origenOcupacion = "ticket";
+        puestoAnteriorId = ticketAbierto.rows[0].puestos_id_puesto;
       }
-      // Guarda el puesto actual para liberarlo si cambia.
-      puestoAnteriorId = contratoVigente.rows[0].puestos_id_puesto;
+    }
+
+    // Condiciones económicas del contrato vigente. Un solo UPDATE dinámico,
+    // igual que el de vehiculos. Si no hay contrato vigente se avisa con 404
+    // en vez de actualizar cero filas en silencio.
+    const setC: string[] = [];
+    const valsC: unknown[] = [];
+    if (precio !== undefined) {
+      if (!Number.isFinite(precio) || precio < 0) throw new ErrorDominio("Precio inválido", 400);
+      valsC.push(precio); setC.push(`precio = $${valsC.length}`);
+    }
+    if (diaPago !== undefined) {
+      if (!Number.isInteger(diaPago) || diaPago < 1 || diaPago > 31) {
+        throw new ErrorDominio("El día de pago debe estar entre 1 y 31", 400);
+      }
+      valsC.push(diaPago); setC.push(`dia_pago = $${valsC.length}`);
+    }
+    if (setC.length) {
+      valsC.push(placa);
+      const r = await cliente.query(
+        `UPDATE contratos SET ${setC.join(", ")}
+         WHERE vehiculos_placa = $${valsC.length}
+           AND fecha_eliminado IS NULL
+           AND fecha_fin > NOW()`,
+        valsC
+      );
+      if (r.rowCount === 0) {
+        throw new ErrorDominio("El vehículo no tiene contrato vigente", 404);
+      }
+    }
+
+    // Estado de pago: mensual lo lleva en contratos, diario en el ticket
+    // abierto. Va separado del bloque anterior para no acoplar la búsqueda
+    // de contrato con el flujo de tickets.
+    if (pagado !== undefined) {
+      const tipo = await cliente.query(
+        `SELECT t.tipo_vehiculo
+         FROM vehiculos v
+         JOIN tarifa t ON t.id_tarifa = v.tarifa_id_tarifa
+         WHERE v.placa = $1 AND v.fecha_eliminado IS NULL`,
+        [placa]
+      );
+      if (!tipo.rows.length) {
+        throw new ErrorDominio("Vehículo no encontrado", 404);
+      }
+
+      if (tipo.rows[0].tipo_vehiculo === "mensual") {
+        // Marcar pagado sella el mes en curso; desmarcar borra el sello.
+        const r = await cliente.query(
+          `UPDATE contratos
+           SET pagado = $1,
+               pagado_mes = CASE WHEN $1 THEN TO_CHAR(NOW(), 'YYYY-MM') ELSE NULL END
+           WHERE vehiculos_placa = $2
+             AND fecha_eliminado IS NULL
+             AND fecha_fin > NOW()`,
+          [pagado, placa]
+        );
+        if (r.rowCount === 0) {
+          throw new ErrorDominio("El vehículo no tiene contrato vigente", 404);
+        }
+      } else {
+        const r = await cliente.query(
+          `UPDATE tickets SET pagado = $1
+           WHERE vehiculos_placa = $2
+             AND fecha_salida IS NULL
+             AND fecha_eliminado IS NULL`,
+          [pagado, placa]
+        );
+        if (r.rowCount === 0) {
+          throw new ErrorDominio("El vehículo no tiene ticket abierto", 404);
+        }
+      }
+    }
+
+    // Cambio de clase: reasigna la tarifa vigente al tipo cuyo nombre coincide.
+    // El frontend envía el `nombre` exacto de tipos_vehiculo.
+    if (clase) {
+      const tar = await cliente.query(
+        `SELECT t.id_tarifa
+         FROM vehiculos v
+         JOIN tarifa  actual ON actual.id_tarifa = v.tarifa_id_tarifa
+         JOIN tarifa  t      ON t.tipo_vehiculo = actual.tipo_vehiculo
+         JOIN tipos_vehiculo tv ON tv.id_tipo_vehiculo = t.tipo_vehiculo_id
+         WHERE v.placa = $1
+           AND v.fecha_eliminado IS NULL
+           AND tv.nombre = $2
+           AND t.fecha_eliminado IS NULL
+         LIMIT 1`,
+        [placa, clase]
+      );
+      if (!tar.rows.length) {
+        throw new ErrorDominio(`No existe la clase ${clase}`, 400);
+      }
+      await cliente.query(
+        `UPDATE vehiculos SET tarifa_id_tarifa = $1
+         WHERE placa = $2 AND fecha_eliminado IS NULL`,
+        [tar.rows[0].id_tarifa, placa]
+      );
     }
 
     // 1. Estado y color van en un solo UPDATE sobre vehiculos.
@@ -479,10 +647,23 @@ export async function actualizarVehiculo(
       );
     }
 
-    // 2. Al inactivar se liberan los puestos de tickets abiertos.
-    //    El puesto del contrato se mantiene reservado para el cliente.
-    // Esto afecta ingresos diarios abiertos, no contratos mensuales.
+    // 2. Cambio de estado → sincroniza la ocupación del puesto.
+    //    Inactivar libera; reactivar reocupa el que el contrato reservó.
+    //    `puestos.estado_puesto` es lo que lee ajustarTotalPuestos (el mapa
+    //    se deriva de JOINs, así que sin esto la columna miente y un ajuste
+    //    de total podría borrar un puesto en uso).
     if (estado === "inactivo") {
+      // Contrato vigente: libera el puesto reservado al mensual.
+      await cliente.query(
+        `UPDATE puestos p SET estado_puesto = FALSE
+         FROM contratos c
+         WHERE c.vehiculos_placa = $1
+           AND c.puestos_id_puesto = p.id_puesto
+           AND c.fecha_eliminado IS NULL
+           AND c.fecha_fin > NOW()`,
+        [placa]
+      );
+      // Ticket abierto (diario).
       await cliente.query(
         `UPDATE puestos p SET estado_puesto = FALSE
          FROM tickets tik
@@ -490,6 +671,22 @@ export async function actualizarVehiculo(
            AND tik.puestos_id_puesto = p.id_puesto
            AND tik.fecha_salida IS NULL
            AND tik.fecha_eliminado IS NULL`,
+        [placa]
+      );
+    }
+
+    if (estado === "activo") {
+      // Solo reocupa si sigue libre: si otro vehículo lo tomó mientras este
+      // estaba inactivo, no se pisa.
+      await cliente.query(
+        `UPDATE puestos p SET estado_puesto = TRUE
+         FROM contratos c
+         WHERE c.vehiculos_placa = $1
+           AND c.puestos_id_puesto = p.id_puesto
+           AND c.fecha_eliminado IS NULL
+           AND c.fecha_fin > NOW()
+           AND p.fecha_eliminado IS NULL
+           AND p.estado_puesto = FALSE`,
         [placa]
       );
     }
@@ -507,8 +704,8 @@ export async function actualizarVehiculo(
       );
     }
 
-    // 4. Reasignación de puesto del contrato vigente. El contrato ya se validó
-    //    y su puesto actual quedó en `puestoAnteriorId` durante el fail-fast.
+    // 4. Reasignación de puesto. El contrato (o ticket) ya se validó y su
+    //    puesto actual quedó en `puestoAnteriorId` durante el fail-fast.
     // Si no venia puestosIdPuesto, esta seccion no corre.
     if (reasigna) {
       // Normaliza el nuevo puesto.
@@ -534,14 +731,25 @@ export async function actualizarVehiculo(
           throw new ErrorDominio("El puesto ya está ocupado", 409);
         }
 
-        // Cambia el puesto guardado en el contrato vigente.
-        await cliente.query(
-          `UPDATE contratos SET puestos_id_puesto = $1
-           WHERE vehiculos_placa = $2
-             AND fecha_eliminado IS NULL
-             AND fecha_fin > NOW()`,
-          [nuevoId, placa]
-        );
+        // Escribe el nuevo puesto en la tabla que ostenta la ocupación:
+        // contrato vigente (mensual) o ticket abierto (diario).
+        if (origenOcupacion === "contrato") {
+          await cliente.query(
+            `UPDATE contratos SET puestos_id_puesto = $1
+             WHERE vehiculos_placa = $2
+               AND fecha_eliminado IS NULL
+               AND fecha_fin > NOW()`,
+            [nuevoId, placa]
+          );
+        } else {
+          await cliente.query(
+            `UPDATE tickets SET puestos_id_puesto = $1
+             WHERE vehiculos_placa = $2
+               AND fecha_salida IS NULL
+               AND fecha_eliminado IS NULL`,
+            [nuevoId, placa]
+          );
+        }
 
         // Un solo UPDATE para liberar el anterior y ocupar el nuevo.
         // Si `puestoAnteriorId` es null, `IN ($1, NULL)` sólo matchea el nuevo.
@@ -652,21 +860,21 @@ export async function listarVehiculosInactivos() {
       u.nombre,
       u.telefono,
       v.color,
+      tv.nombre AS clase_vehiculo,
       t.tipo_vehiculo AS tipo,
       CASE
         WHEN ult.fecha_fin > NOW() THEN ult.numero_puesto::text
         ELSE '—'
-      END AS puesto,
-      ult.contrato_fin
+      END AS puesto
     FROM vehiculos v
     JOIN usuarios u ON u.documento = v.usuarios_documento
     JOIN tarifa t ON t.id_tarifa = v.tarifa_id_tarifa
     JOIN estados e ON e.id_estado = v.estados_id_estado
+    LEFT JOIN tipos_vehiculo tv ON tv.id_tipo_vehiculo = t.tipo_vehiculo_id
     LEFT JOIN LATERAL (
       SELECT
         p.numero_puesto,
-        c.fecha_fin,
-        TO_CHAR(c.fecha_fin, 'DD-MM-YYYY') AS contrato_fin
+        c.fecha_fin
       FROM contratos c
       LEFT JOIN puestos p ON p.id_puesto = c.puestos_id_puesto
       WHERE c.vehiculos_placa = v.placa

@@ -13,8 +13,12 @@ import pool from "./db";
 const globalSeed = globalThis as unknown as {
   // Promesa compartida del seed en ejecucion o ya ejecutado.
   __seedPromise?: Promise<void>;
-  // Bandera que indica que las migraciones ya se aplicaron en este proceso.
-  __migrado?: boolean;
+  // Firma del último script aplicado en este proceso. Es un string y no un
+  // booleano a propósito: si fuera boolean, editar MIGRACION_SQL en dev no
+  // invalidaba el cache (globalThis sobrevive al HMR) y el DDL nuevo nunca
+  // llegaba a Postgres hasta reiniciar el proceso. Comparar la firma re-aplica
+  // automáticamente cuando el SQL cambia.
+  __migrado?: string;
 };
 
 // MIGRACION_SQL agrupa cambios de esquema idempotentes:
@@ -34,6 +38,30 @@ const MIGRACION_SQL = `
   ALTER TABLE sugerencias ADD COLUMN IF NOT EXISTS estado VARCHAR(20) NOT NULL DEFAULT 'pendiente';
 
   ALTER TABLE contratos ADD COLUMN IF NOT EXISTS puestos_id_puesto INTEGER REFERENCES puestos(id_puesto);
+
+  -- Condiciones económicas del contrato mensual. Se guardan en contratos y no
+  -- en vehiculos porque son propias de cada periodo de cobro.
+  ALTER TABLE contratos ADD COLUMN IF NOT EXISTS precio   NUMERIC(12,2);
+  ALTER TABLE contratos ADD COLUMN IF NOT EXISTS pagado   BOOLEAN NOT NULL DEFAULT FALSE;
+  ALTER TABLE contratos ADD COLUMN IF NOT EXISTS dia_pago SMALLINT;
+
+  -- Mes en curso en que se marcó pagado el contrato. Al cambiar el mes,
+  -- el bool pagado deja de contar: la lectura se hace contra esta columna.
+  ALTER TABLE contratos ADD COLUMN IF NOT EXISTS pagado_mes VARCHAR(7);
+
+  UPDATE contratos
+  SET pagado_mes = TO_CHAR(NOW(), 'YYYY-MM')
+  WHERE pagado = TRUE AND pagado_mes IS NULL;
+
+  -- Estado de pago del ticket diario. Vive en el ticket abierto (no en
+  -- vehiculos) para que un mismo vehículo diario pueda marcarse pagado sin
+  -- afectar su historial. El mapa lee esta columna para el tooltip.
+  ALTER TABLE tickets ADD COLUMN IF NOT EXISTS pagado BOOLEAN NOT NULL DEFAULT FALSE;
+
+  -- Tarifa por minuto: la columna convive con valor_hora/valor_dia/valor_mes.
+  -- Cada modalidad cotiza solo su propia columna; el cálculo del ticket
+  -- combina minuto + hora + día para prorratear estadías cortas.
+  ALTER TABLE tarifa ADD COLUMN IF NOT EXISTS valor_minuto NUMERIC(12,2);
 
   -- Columnas huérfanas del diseño inicial. Ninguna participa en la lógica de
   -- negocio y ensuciaban cada INSERT: se eliminan de forma idempotente.
@@ -74,6 +102,10 @@ const MIGRACION_SQL = `
   INSERT INTO tarifa(tipo_vehiculo, valor_hora)
   SELECT 'por_hora', 3000
   WHERE NOT EXISTS (SELECT 1 FROM tarifa WHERE tipo_vehiculo='por_hora');
+
+  INSERT INTO tarifa(tipo_vehiculo, valor_minuto)
+  SELECT 'por_minuto', 100
+  WHERE NOT EXISTS (SELECT 1 FROM tarifa WHERE tipo_vehiculo='por_minuto');
 
   -- Catálogo de tipos de vehículo. Se crea aquí porque la tabla existía sólo
   -- cuando se levantaba la BD manualmente; en un reinicio limpio faltaba y las
@@ -214,6 +246,13 @@ const MIGRACION_SQL = `
 // Recálculo de la bandera de ocupación. Se separó para envolverlo en su propia
 // transacción: sin ella, un corte entre el FALSE global y el TRUE puntual deja
 // la tabla de puestos mintiendo (todos libres) hasta el siguiente arranque.
+// El último UPDATE alinea `pagado` en contratos creados antes de que la columna
+// fuera NOT NULL.
+//
+// El deriver de ocupación exige vehículo vigente Y activo: un mensual
+// inactivado (papelera) mantiene su contrato pero su puesto debe quedar libre,
+// igual que hace listarPuestos. Sin este filtro, el seed reocupaba el puesto
+// que la inactivación había liberado.
 const MIGRACION_PUESTOS_SQL = `
   UPDATE puestos SET estado_puesto = FALSE WHERE fecha_eliminado IS NULL;
 
@@ -221,22 +260,37 @@ const MIGRACION_PUESTOS_SQL = `
   SET estado_puesto = TRUE
   WHERE EXISTS (
     SELECT 1 FROM contratos c
+    JOIN vehiculos v ON v.placa = c.vehiculos_placa
     WHERE c.puestos_id_puesto = p.id_puesto
       AND c.fecha_eliminado IS NULL
       AND c.fecha_fin > NOW()
+      AND v.fecha_eliminado IS NULL
+      AND v.estados_id_estado = (SELECT id_estado FROM estados WHERE nombre_estado = 'activo')
   )
   OR EXISTS (
     SELECT 1 FROM tickets t
+    JOIN vehiculos v ON v.placa = t.vehiculos_placa
     WHERE t.puestos_id_puesto = p.id_puesto
       AND t.fecha_salida IS NULL
       AND t.fecha_eliminado IS NULL
+      AND v.fecha_eliminado IS NULL
+      AND v.estados_id_estado = (SELECT id_estado FROM estados WHERE nombre_estado = 'activo')
   );
+
+  UPDATE contratos SET pagado = FALSE WHERE pagado IS NULL;
 `;
 
-// Aplica el script una sola vez por proceso.
+// Aplica el script una sola vez por versión del SQL.
+// El "por versión" importa: el flag vive en globalThis y sobrevive al
+// hot-reload de Next. Si el cache fuera un booleano, editar MIGRACION_SQL en
+// dev hacía early-return y el DDL nuevo nunca llegaba a Postgres hasta matar
+// el proceso. Comparar la firma del SQL invalida el cache solo.
 async function aplicarMigraciones() {
-  // Si ya se aplico en este proceso, no repite el DDL.
-  if (globalSeed.__migrado) return;
+  // Firma = concatenación del DDL y los updates. Cualquier edición cambia el string.
+  const firma = MIGRACION_SQL + MIGRACION_PUESTOS_SQL;
+
+  // Si ya se aplicó exactamente este SQL en este proceso, no repite el DDL.
+  if (globalSeed.__migrado === firma) return;
 
   // Ejecuta el bloque grande de cambios idempotentes.
   await pool.query(MIGRACION_SQL);
@@ -262,8 +316,8 @@ async function aplicarMigraciones() {
     cliente.release();
   }
 
-  // Marca migraciones como completadas en este proceso.
-  globalSeed.__migrado = true;
+  // Marca esta firma como aplicada en este proceso.
+  globalSeed.__migrado = firma;
 }
 
 // Inserta o actualiza un usuario base.
@@ -356,13 +410,15 @@ async function insertarVehiculosDemo() {
   await pool.query(
     `INSERT INTO contratos (
        tarifa_id_tarifa, vehiculos_placa, usuarios_documento,
-       estados_id_estado, fecha_inicio, fecha_fin, puestos_id_puesto
+       estados_id_estado, fecha_inicio, fecha_fin, puestos_id_puesto,
+       precio, dia_pago, pagado
      )
      SELECT t.id_tarifa, 'ABC123', 1234, e.id_estado,
             NOW(), NOW() + INTERVAL '1 month',
             (SELECT id_puesto FROM puestos
              WHERE fecha_eliminado IS NULL
-             ORDER BY numero_puesto LIMIT 1)
+             ORDER BY numero_puesto LIMIT 1),
+            t.valor_mes, 5, FALSE
      FROM tarifa t, estados e
      WHERE t.tipo_vehiculo = 'mensual' AND e.nombre_estado = 'activo'
        AND NOT EXISTS (

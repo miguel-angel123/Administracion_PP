@@ -32,6 +32,7 @@ export async function PATCH(
       tipoVehiculoId: body.tipoVehiculoId,
       modalidad: body.modalidad,
       valorHora: body.valorHora,
+      valorMinuto: body.valorMinuto,
       valorDia: body.valorDia,
       valorMes: body.valorMes,
     });

@@ -18,15 +18,23 @@ interface Tarifa {
   tipo_nombre: string;
   tipo_icono: string;
   valor_hora: number | null;
+  valor_minuto: number | null;
   valor_dia: number | null;
   valor_mes: number | null;
 }
 
 const iconoPorModalidad = (m: string) =>
-  m === "por_hora" ? "🕐" : m === "diario" ? "🗓️" : "📅";
+  m === "por_minuto" ? "⏱️"
+  : m === "por_hora" ? "🕐"
+  : m === "diario" ? "🗓️"
+  : "📅";
 
 const etiquetaModalidad = (m: string) =>
-  m === "por_hora" ? "Por hora" : m === "diario" ? "Diario" : m === "mensual" ? "Mensual" : m;
+  m === "por_minuto" ? "Por minuto"
+  : m === "por_hora" ? "Por hora"
+  : m === "diario" ? "Diario"
+  : m === "mensual" ? "Mensual"
+  : m;
 
 export default function TarifasPage() {
   const [tipos, setTipos] = useState<Tipo[]>([]);
@@ -60,7 +68,8 @@ export default function TarifasPage() {
 
   const precio = (t: Tarifa) => {
     const valor =
-      t.modalidad === "por_hora" ? t.valor_hora
+      t.modalidad === "por_minuto" ? t.valor_minuto
+      : t.modalidad === "por_hora" ? t.valor_hora
       : t.modalidad === "diario" ? t.valor_dia
       : t.valor_mes;
     return valor ? `$${valor.toLocaleString("es-CO")}` : "—";

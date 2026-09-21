@@ -1,11 +1,11 @@
 // Modelo de tarifas. Una tarifa se identifica por (modalidad, tipo de vehículo).
-// modalidad = "diario" | "mensual" | "por_hora".
+// modalidad = "diario" | "mensual" | "por_hora" | "por_minuto".
 import type { PoolClient } from "pg";
 import pool from "@/lib/db";
 import { ErrorDominio } from "./errores";
 
 // Modalidades válidas. Se usa para validar antes de tocar la BD.
-const MODALIDADES = ["diario", "mensual", "por_hora"];
+const MODALIDADES = ["diario", "mensual", "por_hora", "por_minuto"];
 
 // Devuelve la tarifa vigente de una modalidad. Si se pasa tipoVehiculoId,
 // filtra también por tipo (auto/moto/…). Usada al crear ticket y al cerrar/cobrar.
@@ -19,7 +19,8 @@ export async function obtenerTarifaPorTipo(
 ) {
   const q = client ?? pool;
 
-  let query = `SELECT id_tarifa, tipo_vehiculo, tipo_vehiculo_id, valor_hora, valor_dia, valor_mes
+  let query = `SELECT id_tarifa, tipo_vehiculo, tipo_vehiculo_id,
+                      valor_hora, valor_minuto, valor_dia, valor_mes
                FROM tarifa
                WHERE tipo_vehiculo = $1 AND fecha_eliminado IS NULL`;
   const params: unknown[] = [tipo];
@@ -47,6 +48,7 @@ export async function listarTarifasPorTipo() {
        COALESCE(tv.nombre, 'General') AS tipo_nombre,
        COALESCE(tv.icono, '🚗') AS tipo_icono,
        t.valor_hora,
+       t.valor_minuto,
        t.valor_dia,
        t.valor_mes
      FROM tarifa t
@@ -68,6 +70,7 @@ export async function listarTarifasAdmin() {
        COALESCE(tv.nombre, 'No asignado') AS tipo_vehiculo_nombre,
        COALESCE(tv.icono, '?') AS tipo_vehiculo_icono,
        t.valor_hora,
+       t.valor_minuto,
        t.valor_dia,
        t.valor_mes
      FROM tarifa t
@@ -92,6 +95,7 @@ export async function crearTarifa(datos: {
   tipoVehiculoId: number | string;
   modalidad: string;
   valorHora?: number | null;
+  valorMinuto?: number | null;
   valorDia?: number | null;
   valorMes?: number | null;
 }) {
@@ -102,7 +106,7 @@ export async function crearTarifa(datos: {
 
   const modalidad = datos.modalidad;
   if (!MODALIDADES.includes(modalidad)) {
-    throw new ErrorDominio("Modalidad inválida. Use diario, mensual o por_hora", 400);
+    throw new ErrorDominio("Modalidad inválida. Use diario, mensual, por_hora o por_minuto", 400);
   }
 
   // Cada modalidad cotiza en su propia columna. Una tarifa sin valor es un
@@ -110,6 +114,9 @@ export async function crearTarifa(datos: {
   // bloquee, para que no dependa del cliente.
   if (modalidad === "por_hora" && (!datos.valorHora || datos.valorHora <= 0)) {
     throw new ErrorDominio("El valor por hora es obligatorio y debe ser mayor a 0", 400);
+  }
+  if (modalidad === "por_minuto" && (!datos.valorMinuto || datos.valorMinuto <= 0)) {
+    throw new ErrorDominio("El valor por minuto es obligatorio y debe ser mayor a 0", 400);
   }
   if (modalidad === "diario" && (!datos.valorDia || datos.valorDia <= 0)) {
     throw new ErrorDominio("El valor por día es obligatorio y debe ser mayor a 0", 400);
@@ -130,12 +137,13 @@ export async function crearTarifa(datos: {
 
   try {
     await pool.query(
-      `INSERT INTO tarifa (tipo_vehiculo, tipo_vehiculo_id, valor_hora, valor_dia, valor_mes)
-       VALUES ($1, $2, $3, $4, $5)`,
+      `INSERT INTO tarifa (tipo_vehiculo, tipo_vehiculo_id, valor_hora, valor_minuto, valor_dia, valor_mes)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         modalidad,
         tipoId,
         datos.valorHora ?? null,
+        datos.valorMinuto ?? null,
         datos.valorDia ?? null,
         datos.valorMes ?? null,
       ]
@@ -169,6 +177,7 @@ export async function actualizarTarifa(
     tipoVehiculoId?: number | string;
     modalidad?: string;
     valorHora?: number | null;
+    valorMinuto?: number | null;
     valorDia?: number | null;
     valorMes?: number | null;
   }
@@ -179,7 +188,7 @@ export async function actualizarTarifa(
     await cliente.query("BEGIN");
 
     const actual = await cliente.query(
-      `SELECT tipo_vehiculo, valor_hora, valor_dia, valor_mes
+      `SELECT tipo_vehiculo, valor_hora, valor_minuto, valor_dia, valor_mes
        FROM tarifa
        WHERE id_tarifa = $1 AND fecha_eliminado IS NULL
        FOR UPDATE`,
@@ -192,12 +201,16 @@ export async function actualizarTarifa(
     // Estado final tras aplicar los cambios parciales sobre el actual.
     const fila = actual.rows[0];
     const modFinal = cambios.modalidad ?? fila.tipo_vehiculo;
-    const vHora = cambios.valorHora !== undefined ? cambios.valorHora : fila.valor_hora;
-    const vDia  = cambios.valorDia  !== undefined ? cambios.valorDia  : fila.valor_dia;
-    const vMes  = cambios.valorMes  !== undefined ? cambios.valorMes  : fila.valor_mes;
+    const vHora = cambios.valorHora   !== undefined ? cambios.valorHora   : fila.valor_hora;
+    const vMin  = cambios.valorMinuto !== undefined ? cambios.valorMinuto : fila.valor_minuto;
+    const vDia  = cambios.valorDia    !== undefined ? cambios.valorDia    : fila.valor_dia;
+    const vMes  = cambios.valorMes    !== undefined ? cambios.valorMes    : fila.valor_mes;
 
     if (modFinal === "por_hora" && (!vHora || vHora <= 0)) {
       throw new ErrorDominio("La modalidad por_hora requiere valor_hora > 0", 400);
+    }
+    if (modFinal === "por_minuto" && (!vMin || vMin <= 0)) {
+      throw new ErrorDominio("La modalidad por_minuto requiere valor_minuto > 0", 400);
     }
     if (modFinal === "diario" && (!vDia || vDia <= 0)) {
       throw new ErrorDominio("La modalidad diario requiere valor_dia > 0", 400);
@@ -239,6 +252,11 @@ export async function actualizarTarifa(
       sets.push(`valor_hora = $${valores.length}`);
     }
 
+    if (cambios.valorMinuto !== undefined) {
+      valores.push(cambios.valorMinuto ?? null);
+      sets.push(`valor_minuto = $${valores.length}`);
+    }
+
     if (cambios.valorDia !== undefined) {
       valores.push(cambios.valorDia ?? null);
       sets.push(`valor_dia = $${valores.length}`);
@@ -257,6 +275,7 @@ export async function actualizarTarifa(
     // columna de una modalidad que no aplica), pero 0 y negativos se rechazan.
     const invalidos = ([
       cambios.valorHora,
+      cambios.valorMinuto,
       cambios.valorDia,
       cambios.valorMes,
     ] as (number | null | undefined)[]).some(

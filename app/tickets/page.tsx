@@ -8,6 +8,7 @@ import { esPlacaValida, esDocumentoValido, esTelefonoValido, sinAngular } from "
 import { fetchSeguro } from "@/lib/fetchSeguro";
 import { useDebounce } from "@/lib/useDebounce";
 import { useLiveData } from "@/lib/live/useLiveData";
+import { useAuth } from "@/lib/auth";
 
 type Ticket = {
   id: string;
@@ -55,8 +56,8 @@ type TicketImpresion = {
   modalidad: string;
   tipo_vehiculo_nombre: string | null;
   valor_hora: number | null;
+  valor_minuto: number | null;
   valor_dia: number | null;
-  valor_mes: number | null;
 };
 
 interface RespuestaPaginada<T> {
@@ -70,10 +71,14 @@ interface RespuestaPaginada<T> {
 const TAMANO = 20;
 
 const ETIQUETA_MODALIDAD: Record<string, string> = {
+  por_minuto: "Por minuto",
   por_hora: "Por hora",
   diario: "Diario",
   mensual: "Mensual",
 };
+
+// Estado inicial del formulario de alta. Se reusa en el reset tras crear.
+const FORM_INICIAL = { placa: "", doc: "", nombre: "", telefono: "", puesto: "", tipo: "" };
 
 async function leerJson<T>(res: Response): Promise<T> {
   try {
@@ -84,17 +89,26 @@ async function leerJson<T>(res: Response): Promise<T> {
 }
 
 export default function TicketsPage() {
+  const { user } = useAuth();
+  const canEditTicket = user?.role === "gerente";
+
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [puestos, setPuestos] = useState<Puesto[]>([]);
   const [tiposVeh, setTiposVeh] = useState<TipoVehiculo[]>([]);
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ placa: "", doc: "", telefono: "", puesto: "", tipo: "" });
+  const [form, setForm] = useState(FORM_INICIAL);
   const [infoVehiculo, setInfoVehiculo] = useState<InfoVehiculo | null>(null);
   const [search, setSearch] = useState("");
   const [pagina, setPagina] = useState(1);
   const [total, setTotal] = useState(0);
   const [totalPaginas, setTotalPaginas] = useState(1);
   const [ticketImpresion, setTicketImpresion] = useState<TicketImpresion | null>(null);
+  const [editarTicket, setEditarTicket] = useState<{
+    id: string;
+    nombre: string;
+    telefono: string;
+    tipo: string;
+  } | null>(null);
 
   const searchDebounced = useDebounce(search, 300);
 
@@ -159,11 +173,12 @@ export default function TicketsPage() {
       setForm(f => ({
         ...f,
         doc: String(v.documento),
+        nombre: v.nombre || "",
         telefono: v.telefono || "",
         tipo: v.tipo_vehiculo_id ? String(v.tipo_vehiculo_id) : "",
       }));
     } else {
-      setForm(f => ({ ...f, doc: "", telefono: "", tipo: "" }));
+      setForm(f => ({ ...f, doc: "", nombre: "", telefono: "", tipo: "" }));
     }
   };
 
@@ -188,6 +203,10 @@ export default function TicketsPage() {
       alertaAdvertencia("El teléfono debe tener 10 dígitos");
       return;
     }
+    if (!sinAngular(form.nombre)) {
+      alertaAdvertencia("El nombre contiene caracteres no permitidos");
+      return;
+    }
     if (!sinAngular(form.doc) || !sinAngular(form.telefono)) {
       alertaAdvertencia("Caracteres no permitidos en el formulario");
       return;
@@ -199,6 +218,7 @@ export default function TicketsPage() {
       body: JSON.stringify({
         placa: form.placa.toUpperCase(),
         doc_propietario: form.doc,
+        nombre: form.nombre || undefined,
         telefono: form.telefono,
         puestos_id_puesto: Number(form.puesto),
         tipo_vehiculo_id: form.tipo ? Number(form.tipo) : undefined,
@@ -217,15 +237,17 @@ export default function TicketsPage() {
     }
 
     setModal(false);
-    setForm({ placa: "", doc: "", telefono: "", puesto: "", tipo: "" });
+    setForm(FORM_INICIAL);
     setInfoVehiculo(null);
     await loadTickets();
     await loadPuestos();
   };
 
+  // El cierre se mueve a POST en la API: PATCH quedó reservado para la edición
+  // administrativa del ticket.
   const cerrar = async (id: string) => {
     if (!(await confirmar("¿Cerrar y cobrar este ticket?", "Cerrar ticket", "Sí, cerrar"))) return;
-    const res = await fetchSeguro(`/api/tickets/${id}`, { method: "PATCH" });
+    const res = await fetchSeguro(`/api/tickets/${id}`, { method: "POST" });
     const data = await leerJson<{ error?: string; valorTotal?: number }>(res);
     if (!res.ok) {
       alertaError(data.error || `No se pudo cerrar el ticket (${res.status})`);
@@ -254,6 +276,48 @@ export default function TicketsPage() {
     alertaExito("Ticket finalizado.");
     await loadTickets();
     await loadPuestos();
+  };
+
+  // El GET /api/tickets/[id] devuelve el detalle de impresión; se reutiliza para
+  // precargar el modal de edición sin otro endpoint.
+  const abrirEditarTicket = async (id: string) => {
+    const res = await fetch(`/api/tickets/${id}`);
+    if (!res.ok) { alertaError("No se pudo cargar el ticket"); return; }
+    const t = await leerJson<TicketImpresion>(res);
+    setEditarTicket({
+      id,
+      nombre: t.propietario ?? "",
+      telefono: t.telefono ?? "",
+      // Vacío = no tocar el tipo actual. El operador decide si cambia.
+      tipo: "",
+    });
+  };
+
+  const guardarEditarTicket = async () => {
+    if (!editarTicket) return;
+    if (editarTicket.telefono && !esTelefonoValido(editarTicket.telefono)) {
+      alertaAdvertencia("El teléfono debe tener 10 dígitos");
+      return;
+    }
+    if (!sinAngular(editarTicket.nombre) || !sinAngular(editarTicket.telefono)) {
+      alertaAdvertencia("Caracteres no permitidos");
+      return;
+    }
+
+    const res = await fetchSeguro(`/api/tickets/${editarTicket.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nombre: editarTicket.nombre || undefined,
+        telefono: editarTicket.telefono || undefined,
+        tipoVehiculoId: editarTicket.tipo ? Number(editarTicket.tipo) : undefined,
+      }),
+    });
+    const data = await leerJson<{ error?: string }>(res);
+    if (!res.ok) { alertaError(data.error || "No se pudo editar"); return; }
+    alertaExito("Ticket actualizado.");
+    setEditarTicket(null);
+    await loadTickets();
   };
 
   return (
@@ -293,8 +357,11 @@ export default function TicketsPage() {
                     </td>
                     <td style={{ padding: "11px 16px" }}>
                       {t.estado === "activo" && (
-                        <div style={{ display: "flex", gap: 6 }}>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           <Boton small variant="outline" onClick={() => cerrar(t.id)}>Cerrar</Boton>
+                          {canEditTicket && (
+                            <Boton small variant="ghost" onClick={() => abrirEditarTicket(t.id)}>Editar</Boton>
+                          )}
                           <Boton small danger onClick={() => finalizar(t.id)}>Finalizar</Boton>
                         </div>
                       )}
@@ -335,6 +402,13 @@ export default function TicketsPage() {
                 ✔ Vehículo reconocido.
               </p>
             )}
+          </FilaFormulario>
+          <FilaFormulario label="Propietario">
+            <input
+              value={form.nombre}
+              onChange={e => setForm({ ...form, nombre: e.target.value })}
+              placeholder="Ej: Carlos Pérez"
+            />
           </FilaFormulario>
           <FilaFormulario label="Documento del propietario (solo si la placa no existe)">
             <input
@@ -384,6 +458,43 @@ export default function TicketsPage() {
         </Modal>
       )}
 
+      {editarTicket && (
+        <Modal title={`Editar ticket #${editarTicket.id}`} onClose={() => setEditarTicket(null)}>
+          <FilaFormulario label="Propietario">
+            <input
+              value={editarTicket.nombre}
+              onChange={e => setEditarTicket({ ...editarTicket, nombre: e.target.value })}
+            />
+          </FilaFormulario>
+          <FilaFormulario label="Teléfono">
+            <input
+              value={editarTicket.telefono}
+              onChange={e => setEditarTicket({ ...editarTicket, telefono: e.target.value })}
+              maxLength={10}
+            />
+          </FilaFormulario>
+          <FilaFormulario label="Tipo de vehículo (opcional)">
+            <select
+              value={editarTicket.tipo}
+              onChange={e => setEditarTicket({ ...editarTicket, tipo: e.target.value })}
+            >
+              <option value="">Mantener tipo actual</option>
+              {tiposVeh.map(tv => (
+                <option key={tv.id} value={tv.id}>{tv.icono} {tv.nombre}</option>
+              ))}
+            </select>
+          </FilaFormulario>
+          <p style={{ fontSize: 12, color: C.sub }}>
+            Cambiar el tipo re-resuelve la tarifa diaria; el siguiente cierre cobrará con
+            la nueva referencia.
+          </p>
+          <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+            <Boton onClick={guardarEditarTicket} data-nav-submit style={{ flex: 1 }}>Guardar</Boton>
+            <Boton variant="ghost" onClick={() => setEditarTicket(null)} style={{ flex: 1 }}>Cancelar</Boton>
+          </div>
+        </Modal>
+      )}
+
       {ticketImpresion && (
         <Modal
           title="Ticket creado"
@@ -409,9 +520,9 @@ export default function TicketsPage() {
             <hr />
             <table>
               <tbody>
+                <tr><td>Tarifa por minuto</td><td>{ticketImpresion.valor_minuto ? `$${ticketImpresion.valor_minuto.toLocaleString("es-CO")}` : "—"}</td></tr>
                 <tr><td>Tarifa por hora</td><td>{ticketImpresion.valor_hora ? `$${ticketImpresion.valor_hora.toLocaleString("es-CO")}` : "—"}</td></tr>
                 <tr><td>Tarifa por día</td><td>{ticketImpresion.valor_dia ? `$${ticketImpresion.valor_dia.toLocaleString("es-CO")}` : "—"}</td></tr>
-                <tr><td>Tarifa mensual</td><td>{ticketImpresion.valor_mes ? `$${ticketImpresion.valor_mes.toLocaleString("es-CO")}` : "—"}</td></tr>
               </tbody>
             </table>
             <p className="pie">Conserve este ticket para la salida</p>

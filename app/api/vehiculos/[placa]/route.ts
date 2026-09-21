@@ -61,6 +61,10 @@ export async function PATCH(
       color: typeof body.color === "string" ? body.color : undefined,
       nombre: typeof body.nombre === "string" ? limpiarTexto(body.nombre, 100) : undefined,
       puestosIdPuesto: body.puestosIdPuesto ? Number(body.puestosIdPuesto) : undefined,
+      precio: body.precio !== undefined && body.precio !== "" ? Number(body.precio) : undefined,
+      diaPago: body.diaPago !== undefined && body.diaPago !== "" ? Number(body.diaPago) : undefined,
+      pagado: typeof body.pagado === "boolean" ? body.pagado : undefined,
+      clase: typeof body.clase === "string" ? limpiarTexto(body.clase, 50) : undefined,
     });
 
     await registrarLog(sesion.doc, `Editó vehículo ${placa}`);

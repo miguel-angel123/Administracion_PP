@@ -371,35 +371,6 @@ export async function actualizarUsuario(
   return { ok: true };
 }
 
-// Cambia el estado del usuario por nombre ("activo", "trabajando", "descansando", "inactivo").
-// Regla: "inactivo" implica soft delete (fecha_eliminado); el resto limpia esa fecha.
-// Un solo statement: el id del estado se resuelve en el FROM estados y la fecha
-// se decide por CASE, sin un SELECT previo.
-export async function cambiarEstadoPorNombre(doc: number, nombreEstado: string) {
-  // Actualiza estado resolviendo el id por nombre dentro del mismo SQL.
-  const { rowCount } = await pool.query(
-    `UPDATE usuarios u
-     SET estados_id_estado = e.id_estado,
-         fecha_eliminado = CASE WHEN $2 = 'inactivo' THEN NOW() ELSE NULL END
-     FROM estados e
-     WHERE e.nombre_estado = $2 AND u.documento = $1`,
-    [doc, nombreEstado]
-  );
-
-  // rowCount = 0 tanto si el usuario no existe como si el estado no existe.
-  // Se elige un solo mensaje a cambio de no hacer un SELECT previo: los
-  // llamadores sólo pasan nombres del catálogo sembrado.
-  if (rowCount === 0) {
-    throw new ErrorDominio(
-      `Usuario ${doc} o estado ${nombreEstado} no encontrados`,
-      404
-    );
-  }
-
-  // Respuesta simple para endpoints.
-  return { ok: true };
-}
-
 // Garantiza que exista un cliente. Se usa al registrar vehículo mensual
 // o al crear un ticket con un documento nuevo.
 // Acepta un `client` para entrar en la transacción de `crearTicket`: el alta

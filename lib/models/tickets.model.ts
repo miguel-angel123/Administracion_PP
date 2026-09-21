@@ -1,4 +1,4 @@
-// Modelo de tickets diarios: alta, cierre con cálculo y finalización.
+// Modelo de tickets diarios: alta, cierre con cálculo, edición y finalización.
 // pool ejecuta consultas SQL contra PostgreSQL.
 import pool from "@/lib/db";
 // registrarLog inserta auditoria de operaciones importantes.
@@ -142,11 +142,16 @@ export async function listarTickets(opts: OpcionesListado = {}) {
 // Los logs se escriben DESPUÉS del COMMIT: no se registra una acción que abortó.
 //
 // Placa conocida: el operador puede corregir el TIPO de vehículo (se actualiza
-// la tarifa vigente del vehículo) y el TELÉFONO del propietario. El DOCUMENTO
-// no se acepta: reasignar dueño se hace desde el módulo /vehiculos, no aquí.
+// la tarifa vigente del vehículo), el NOMBRE y el TELÉFONO del propietario. El
+// DOCUMENTO no se acepta: reasignar dueño se hace desde el módulo /vehiculos,
+// no aquí.
+//
+// Placa nueva: el NOMBRE es opcional; si no llega, `crearClienteSiNoExiste`
+// genera "Cliente <doc>".
 export async function crearTicket(datos: {
   placa?: string;
   doc_propietario?: string;
+  nombre?: string;
   telefono?: string;
   puestos_id_puesto?: number;
   tipo_vehiculo_id?: number;
@@ -156,6 +161,7 @@ export async function crearTicket(datos: {
   const {
     placa,
     doc_propietario,
+    nombre,
     telefono,
     puestos_id_puesto,
     tipo_vehiculo_id,
@@ -328,6 +334,16 @@ export async function crearTicket(datos: {
           [telefono, propietarioDoc]
         );
       }
+
+      // El operador pudo corregir el nombre del propietario. Se ignora si
+      // llega vacío: no se debe pisar el nombre existente con "".
+      if (nombre && nombre.trim()) {
+        await cliente.query(
+          `UPDATE usuarios SET nombre = $1
+           WHERE documento = $2 AND nombre <> $1`,
+          [nombre.trim(), propietarioDoc]
+        );
+      }
     } else {
       // No existe: hace falta documento y teléfono del propietario.
       if (!doc_propietario) {
@@ -349,7 +365,7 @@ export async function crearTicket(datos: {
 
       // Alta o reactivación del cliente dentro de la misma transacción.
       const resultadoCliente = await crearClienteSiNoExiste(
-        { doc: docFinal, telefono },
+        { doc: docFinal, nombre: nombre?.trim() || undefined, telefono },
         cliente
       );
       // Guarda si se creo cliente.
@@ -441,21 +457,23 @@ export async function crearTicket(datos: {
   return { ok: true, id: ticketId };
 }
 
-// Cerrar ticket. Calcula valor_total por bloques de 24h:
+// Cerrar ticket. Calcula valor_total por bloques de 24h + resto prorrateado:
 //   - Cada día completo paga capDia (valor_dia).
-//   - Las horas sobrantes se cobran a valorHora, mínimo 1h, con tope capDia.
-//   - Si no hay valorHora, se cobra directo capDia (estadía sin cobro horario).
+//   - El resto se cobra a minuto exacto (resto_hora * valor_hora +
+//     resto_minuto * valor_minuto), mínimo 1 minuto.
+//   - El bloque resto nunca supera un día completo (tope diario).
+//   - Si el tipo no tiene tarifa horaria ni minuto, cualquier fracción sobrante
+//     cobra un día completo: evita cobrar 0 por una estadía corta.
 //
 // Una estadía de 48h paga 2 días; una de 24h exactas paga 1 día sin sumar la
 // hora que el Math.max(1, …) inyectaba por error. Es la regla estándar de
 // parqueadero.
 //
 // La tarifa guardada en el ticket es la DIARIA (crearTicket inserta
-// `tarifaDiaria.id_tarifa`), así que su `valor_hora` es NULL por diseño: cada
-// modalidad cotiza sólo su propia columna. Para prorratear las horas se
-// consulta la tarifa por_hora del MISMO tipo de vehículo con un LEFT JOIN. Si
-// el tipo no tiene hora configurada, `valorHora` queda NULL y el cálculo cae
-// al branch de "cobrar día completo".
+// `tarifaDiaria.id_tarifa`), así que sus `valor_hora`/`valor_minuto` son NULL
+// por diseño: cada modalidad cotiza sólo su propia columna. Para prorratear el
+// resto se consultan las tarifas por_hora y por_minuto del MISMO tipo de
+// vehículo con LEFT JOINs.
 //
 // El SELECT, el cierre, la inactivación del vehículo y la liberación del
 // puesto van en una sola transacción, y las tres mutaciones se hacen con
@@ -479,6 +497,7 @@ export async function cerrarTicket(id: string, operadorDoc: string) {
          tik.vehiculos_placa,
          tar_dia.valor_dia,
          tar_hora.valor_hora,
+         tar_min.valor_minuto,
          EXTRACT(EPOCH FROM (NOW() - tik.fecha_ingreso)) / 3600 AS horas
        FROM tickets tik
        JOIN tarifa tar_dia ON tar_dia.id_tarifa = tik.tarifa_id_tarifa
@@ -486,6 +505,10 @@ export async function cerrarTicket(id: string, operadorDoc: string) {
          ON tar_hora.tipo_vehiculo = 'por_hora'
         AND tar_hora.tipo_vehiculo_id = tar_dia.tipo_vehiculo_id
         AND tar_hora.fecha_eliminado IS NULL
+       LEFT JOIN tarifa tar_min
+         ON tar_min.tipo_vehiculo = 'por_minuto'
+        AND tar_min.tipo_vehiculo_id = tar_dia.tipo_vehiculo_id
+        AND tar_min.fecha_eliminado IS NULL
        WHERE tik.id_ticket = $1
          AND tik.fecha_salida IS NULL
          AND tik.fecha_eliminado IS NULL
@@ -502,31 +525,35 @@ export async function cerrarTicket(id: string, operadorDoc: string) {
     const tk = ticket.rows[0];
     // Horas transcurridas desde fecha_ingreso hasta ahora.
     const horas = Number(tk.horas || 0);
-    // Tope diario o valor del dia.
+    // Tope diario o valor del día.
     const capDia = Number(tk.valor_dia || 0);
-    // Valor por hora del mismo tipo de vehiculo.
+    // Valor por hora del mismo tipo de vehículo.
     const valorHora = Number(tk.valor_hora || 0);
+    // Valor por minuto del mismo tipo de vehículo.
+    const valorMinuto = Number(tk.valor_minuto || 0);
 
-    // Cobro por bloques de 24h. El piso de 1h sólo aplica si hay sobrante:
-    // a las 24h exactas el bloque de día ya cubre el cobro y no se suma hora.
-    // Valor inicial: cobra al menos el dia si no hay tarifa por hora util.
-    let valorTotal = capDia;
-    // Si hay hora y dia, aplica bloques de 24 horas con tope diario.
-    if (valorHora > 0 && capDia > 0) {
-      // Dias completos de parqueo.
-      const diasCompletos = Math.floor(horas / 24);
-      // Horas que sobran despues de los dias completos.
-      const horasRestantes = horas - diasCompletos * 24;
-      // Cobro de horas restantes con minimo 1 hora y maximo valor_dia.
-      const cobroRestante = horasRestantes > 0
-        ? Math.min(Math.max(1, Math.ceil(horasRestantes)) * valorHora, capDia)
-        : 0;
-      // Total final combinando dias completos y resto.
-      valorTotal = diasCompletos * capDia + cobroRestante;
-    } else if (valorHora > 0) {
-      // Si solo hay tarifa por hora, cobra horas redondeadas hacia arriba.
-      valorTotal = Math.max(1, Math.ceil(horas)) * valorHora;
+    // Se redondea a minutos al alza: la fracción inicial siempre cobra al menos 1.
+    const minutosTotales = Math.max(1, Math.ceil(horas * 60));
+    // Bloques exactos de 24h se cobran al capDia.
+    const diasCompletos = Math.floor(minutosTotales / 1440);
+    const minutosResto = minutosTotales - diasCompletos * 1440;
+    const horasResto = Math.floor(minutosResto / 60);
+    const minutosSueltos = minutosResto - horasResto * 60;
+
+    // Bloque resto: horas × valor_hora + minutos × valor_minuto.
+    let valorResto = horasResto * valorHora + minutosSueltos * valorMinuto;
+
+    // Sin tarifa horaria ni minuto configurados, cualquier fracción sobrante cobra
+    // un día completo (evita cobrar 0 por una estadía corta en tipos sin tarifa fina).
+    if (valorHora === 0 && valorMinuto === 0) {
+      valorResto = minutosResto > 0 ? capDia : 0;
     }
+
+    // El bloque resto nunca supera un día completo.
+    if (capDia > 0 && valorResto > capDia) valorResto = capDia;
+
+    // Total: días completos + fracción sobrante.
+    let valorTotal = diasCompletos * capDia + valorResto;
 
     // Cierra ticket, inactiva vehiculo y libera puesto en un solo SQL con CTEs.
     await cliente.query(
@@ -642,12 +669,110 @@ export async function finalizarTicket(id: string, operadorDoc: string) {
   }
 }
 
+// Edición de un ticket abierto. Reservada al gerente (el controlador aplica
+// el guard). Permite corregir el nombre/teléfono del propietario y el tipo de
+// vehículo, que a su vez re-resuelve la tarifa diaria del ticket.
+// No permite cambiar placa, puesto ni fecha: eso implicaría otro ciclo de
+// transacción y otro tipo de operación (reasignar, recobrar).
+export async function actualizarTicket(
+  id: string,
+  cambios: {
+    nombre?: string;
+    telefono?: string;
+    tipoVehiculoId?: number;
+  },
+  operadorDoc: string
+) {
+  const cliente = await pool.connect();
+
+  try {
+    await cliente.query("BEGIN");
+
+    // FOR UPDATE serializa con cerrarTicket: no se edita un ticket que otro
+    // operador está a punto de cobrar.
+    const ticket = await cliente.query(
+      `SELECT tik.id_ticket, tik.usuarios_documento, tik.vehiculos_placa,
+              tik.tarifa_id_tarifa, tar.tipo_vehiculo_id AS tipo_actual
+       FROM tickets tik
+       JOIN tarifa tar ON tar.id_tarifa = tik.tarifa_id_tarifa
+       WHERE tik.id_ticket = $1
+         AND tik.fecha_salida IS NULL
+         AND tik.fecha_eliminado IS NULL
+       FOR UPDATE OF tik`,
+      [Number(id)]
+    );
+    if (!ticket.rows.length) {
+      throw new ErrorDominio("Ticket no encontrado, cerrado o finalizado", 404);
+    }
+
+    const tk = ticket.rows[0];
+    const docPropietario = Number(tk.usuarios_documento);
+
+    // 1. Datos del propietario (viven en usuarios).
+    if (cambios.nombre && cambios.nombre.trim()) {
+      await cliente.query(
+        `UPDATE usuarios SET nombre = $1 WHERE documento = $2`,
+        [cambios.nombre.trim(), docPropietario]
+      );
+    }
+    if (cambios.telefono && cambios.telefono.trim()) {
+      await cliente.query(
+        `UPDATE usuarios SET telefono = $1 WHERE documento = $2`,
+        [cambios.telefono.trim(), docPropietario]
+      );
+    }
+
+    // 2. Tipo de vehículo: re-resuelve la tarifa diaria del mismo tipo y la
+    //    propaga al vehículo y al ticket. Sin este doble UPDATE, el siguiente
+    //    cierre seguiría cobrando con la tarifa del tipo viejo.
+    if (cambios.tipoVehiculoId && cambios.tipoVehiculoId !== Number(tk.tipo_actual)) {
+      const existe = await cliente.query(
+        `SELECT 1 FROM tipos_vehiculo
+         WHERE id_tipo_vehiculo = $1 AND fecha_eliminado IS NULL`,
+        [cambios.tipoVehiculoId]
+      );
+      if (!existe.rows.length) {
+        throw new ErrorDominio("Tipo de vehículo no existe", 400);
+      }
+
+      const nuevaTarifa = await obtenerTarifaPorTipo(
+        "diario",
+        cambios.tipoVehiculoId,
+        cliente
+      );
+
+      await cliente.query(
+        `UPDATE vehiculos SET tarifa_id_tarifa = $1
+         WHERE placa = $2 AND fecha_eliminado IS NULL`,
+        [nuevaTarifa.id_tarifa, tk.vehiculos_placa]
+      );
+      await cliente.query(
+        `UPDATE tickets SET tarifa_id_tarifa = $1 WHERE id_ticket = $2`,
+        [nuevaTarifa.id_tarifa, Number(id)]
+      );
+    }
+
+    await cliente.query("COMMIT");
+    await registrarLog(operadorDoc, `Editó ticket ${tk.vehiculos_placa}`);
+
+    return { ok: true };
+  } catch (e) {
+    await cliente.query("ROLLBACK");
+    throw e;
+  } finally {
+    cliente.release();
+  }
+}
+
 // Datos del ticket para imprimir el comprobante tras crear.
 //
-// La tarifa guardada en el ticket es la diaria: su `valor_hora` y `valor_mes`
+// La tarifa guardada en el ticket es la diaria: su `valor_hora` y `valor_minuto`
 // son NULL por diseño (cada modalidad cotiza su columna). El comprobante debe
 // mostrar las tres tarifas del TIPO de vehículo del ticket, no las del ancla.
 // Se resuelven con subselects sobre la misma `tipo_vehiculo_id`.
+//
+// La mensualidad se omite a propósito: el comprobante es de un ticket diario,
+// no de un contrato mensual.
 //
 // El JOIN a `tipos_vehiculo` expone el nombre del tipo (Automóvil, Moto, …)
 // para que el comprobante pueda distinguirlo de la modalidad "diario".
@@ -669,12 +794,12 @@ export async function obtenerTicketParaImpresion(id: string) {
           AND tipo_vehiculo_id = tar.tipo_vehiculo_id
           AND fecha_eliminado IS NULL
         LIMIT 1) AS valor_hora,
-       tar.valor_dia,
-       (SELECT valor_mes FROM tarifa
-        WHERE tipo_vehiculo = 'mensual'
+       (SELECT valor_minuto FROM tarifa
+        WHERE tipo_vehiculo = 'por_minuto'
           AND tipo_vehiculo_id = tar.tipo_vehiculo_id
           AND fecha_eliminado IS NULL
-        LIMIT 1) AS valor_mes
+        LIMIT 1) AS valor_minuto,
+       tar.valor_dia
      FROM tickets tik
      JOIN vehiculos v ON v.placa = tik.vehiculos_placa
      JOIN usuarios u ON u.documento = tik.usuarios_documento

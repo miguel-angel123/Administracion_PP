@@ -4,7 +4,7 @@ import { getSesion } from "@/lib/session";
 import { ensureSeed } from "@/lib/seed";
 import * as ticketsModel from "@/lib/models/tickets.model";
 import { respuestaError } from "@/lib/erroresHttp";
-import { limpiarPlaca, limpiarDocumento, limpiarTelefono } from "@/lib/sanitizar";
+import { limpiarPlaca, limpiarDocumento, limpiarTexto, limpiarTelefono } from "@/lib/sanitizar";
 
 export async function GET(req: Request) {
   try {
@@ -63,6 +63,7 @@ export async function POST(req: Request) {
     const resultado = await ticketsModel.crearTicket({
       placa: limpiarPlaca(body.placa),
       doc_propietario: limpiarDocumento(body.doc_propietario) || undefined,
+      nombre: limpiarTexto(body.nombre, 100) || undefined,
       telefono: limpiarTelefono(body.telefono) || undefined,
       puestos_id_puesto: body.puestos_id_puesto,
       tipo_vehiculo_id: body.tipo_vehiculo_id ? Number(body.tipo_vehiculo_id) : undefined,

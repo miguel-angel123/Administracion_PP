@@ -23,6 +23,7 @@ interface TarifaPorTipo {
   tipo_nombre: string;
   tipo_icono: string;
   valor_hora: number | null;
+  valor_minuto: number | null;
   valor_dia: number | null;
   valor_mes: number | null;
 }
@@ -34,12 +35,14 @@ interface TipoVehiculo {
 }
 
 const ETIQUETA_MODALIDAD: Record<string, string> = {
+  por_minuto: "Por minuto",
   por_hora: "Por hora",
   diario: "Diario",
   mensual: "Mensual",
 };
 
 function valorDeTarifa(t: TarifaPorTipo): number | null {
+  if (t.modalidad === "por_minuto") return t.valor_minuto;
   if (t.modalidad === "por_hora") return t.valor_hora;
   if (t.modalidad === "diario") return t.valor_dia;
   if (t.modalidad === "mensual") return t.valor_mes;
