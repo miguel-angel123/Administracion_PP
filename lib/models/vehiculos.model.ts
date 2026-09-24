@@ -425,8 +425,9 @@ export async function registrarVehiculoMensual(datos: {
 // Todo va en una transacción: si algo falla, no queda un cambio parcial.
 // - estado: "activo" | "inactivo".
 //   * Al pasar a "inactivo" se liberan tanto los puestos de tickets abiertos
-//     como el del contrato vigente: el vehículo sale del mapa y su puesto
-//     queda realmente disponible.
+//     como el del contrato vigente, y el contrato queda desvinculado
+//     (puestos_id_puesto = NULL): el vehículo sale del mapa y su puesto queda
+//     realmente disponible. Reactivar exige elegir puesto nuevo.
 //   * Al pasar a "activo" se reocupa el puesto del contrato vigente si sigue
 //     libre (si otro vehículo lo tomó mientras estaba inactivo, no se pisa).
 // - color: cambia el color del vehículo.
@@ -663,7 +664,17 @@ export async function actualizarVehiculo(
            AND c.fecha_fin > NOW()`,
         [placa]
       );
-      // Ticket abierto (diario).
+      // Desvincula el puesto del contrato: el vehículo inactivo no tiene
+      // ubicación en BD. Reactivar exige elegir una nueva (ver bloque "activo"
+      // / reasigna).
+      await cliente.query(
+        `UPDATE contratos SET puestos_id_puesto = NULL
+         WHERE vehiculos_placa = $1
+           AND fecha_eliminado IS NULL
+           AND fecha_fin > NOW()`,
+        [placa]
+      );
+      // Ticket abierto (diario): mismo tratamiento de liberación.
       await cliente.query(
         `UPDATE puestos p SET estado_puesto = FALSE
          FROM tickets tik
@@ -863,7 +874,8 @@ export async function listarVehiculosInactivos() {
       tv.nombre AS clase_vehiculo,
       t.tipo_vehiculo AS tipo,
       CASE
-        WHEN ult.fecha_fin > NOW() THEN ult.numero_puesto::text
+        WHEN ult.numero_puesto IS NOT NULL AND ult.fecha_fin > NOW()
+          THEN ult.numero_puesto::text
         ELSE '—'
       END AS puesto
     FROM vehiculos v

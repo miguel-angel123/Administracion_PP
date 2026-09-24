@@ -43,6 +43,7 @@ export default function VehiculosPage() {
   const [modal, setModal] = useState<string | null>(null);
   const [selected, setSelected] = useState<VehiculoDB | null>(null);
   const [form, setForm] = useState<Partial<VehiculoDB>>({});
+  const [reactivando, setReactivando] = useState(false);
   const [papeleraAbierta, setPapeleraAbierta] = useState(false);
 
   // Permisos según rol
@@ -81,12 +82,14 @@ export default function VehiculosPage() {
       placa: "", nombre: "", doc: "", telefono: "", color: "", 
       tipo: "mensual", clase_vehiculo: "carro", puestoSeleccionado: "" 
     });
+    setReactivando(false);
     setModal("create");
   };
 
   const openEdit = (v: VehiculoDB) => { 
     setForm({ ...v, puestoSeleccionado: "" }); 
-    setSelected(v); 
+    setSelected(v);
+    setReactivando(false);
     setModal("edit"); 
   };
   
@@ -149,7 +152,20 @@ export default function VehiculosPage() {
         clase_vehiculo: form.clase_vehiculo,
       };
       if (form.nombre?.trim()) putBody.nombre = form.nombre.trim();
-      if (form.puestoSeleccionado) putBody.puestosIdPuesto = Number(form.puestoSeleccionado);
+
+      // Reactivar es un PATCH de edición: el vehículo inactivo ya no tiene
+      // puesto en BD, así que el puesto elegido es obligatorio y viaja junto
+      // al cambio de estado.
+      if (reactivando) {
+        if (!form.puestoSeleccionado) {
+          alertaAdvertencia("Debe asignar un puesto libre al reactivar el vehículo");
+          return;
+        }
+        putBody.estado = "activo";
+        putBody.puestosIdPuesto = Number(form.puestoSeleccionado);
+      } else if (form.puestoSeleccionado) {
+        putBody.puestosIdPuesto = Number(form.puestoSeleccionado);
+      }
 
       const res = await fetchSeguro(`/api/vehiculos/${form.placa}`, {
         method: "PATCH",
@@ -161,10 +177,12 @@ export default function VehiculosPage() {
         alertaError(data.error || "No se pudo actualizar");
         return;
       }
-      alertaExito("Vehículo actualizado.");
+      alertaExito(reactivando ? "Vehículo reactivado." : "Vehículo actualizado.");
     }
     setModal(null);
+    setReactivando(false);
     await loadPuestos();
+    await loadInactivos();
   };
 
   const inactivar = async (placa: string) => {
@@ -178,8 +196,9 @@ export default function VehiculosPage() {
     const res = await fetchSeguro(`/api/vehiculos/${placa}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      // Al inactivar, liberamos explícitamente el puesto (null)
-      body: JSON.stringify({ estado: "inactivo", puestosIdPuesto: null }),
+      // El modelo desvincula el puesto del contrato al pasar a "inactivo";
+      // enviar puestosIdPuesto: null aquí sólo duplicaba esa responsabilidad.
+      body: JSON.stringify({ estado: "inactivo" }),
     });
 
     const data = await res.json();
@@ -346,7 +365,14 @@ export default function VehiculosPage() {
 
       {/* MODAL CREAR / EDITAR */}
       {(modal === "create" || modal === "edit") && (
-        <Modal title={modal === "create" ? "Registrar Vehículo" : "Editar Vehículo"} onClose={() => setModal(null)}>
+        <Modal
+          title={
+            modal === "create" ? "Registrar Vehículo"
+            : reactivando ? "Reactivar Vehículo"
+            : "Editar Vehículo"
+          }
+          onClose={() => setModal(null)}
+        >
           <FilaFormulario label="Placa">
             <input
               value={form.placa || ""}
@@ -403,7 +429,9 @@ export default function VehiculosPage() {
           {modal === "edit" && (
             <FilaFormulario label="Puesto asignado">
               <select value={form.puestoSeleccionado || ""} onChange={e => setForm({ ...form, puestoSeleccionado: e.target.value })}>
-                <option value="">Mantener puesto actual ({form.puesto || "—"})</option>
+                <option value="">
+                  {reactivando ? "Seleccione un puesto libre…" : `Mantener puesto actual (${form.puesto || "—"})`}
+                </option>
                 {puestosLibres.map(p => <option key={p.id} value={p.id}>Puesto {p.numero_puesto}</option>)}
               </select>
             </FilaFormulario>
@@ -474,10 +502,12 @@ export default function VehiculosPage() {
                         const ok = await confirmar(`¿Reactivar el vehículo ${v.placa}? Tendrás que asignarle un puesto.`, "Reactivar", "Sí, reactivar");
                         if (!ok) return;
                         
-                        // Lo pasamos al estado de edición para forzar al gerente a asignarle un puesto nuevo
+                        // Reactivar exige puesto nuevo: el modelo lo desvinculó al
+                        // inactivar, por eso el modal de edición arranca sin selección.
                         setPapeleraAbierta(false);
                         setSelected(v);
                         setForm({ ...v, estado: "activo", puestoSeleccionado: "" });
+                        setReactivando(true);
                         setModal("edit");
                       }}>
                       Reactivar

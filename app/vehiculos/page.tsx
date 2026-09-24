@@ -67,9 +67,6 @@ const CLAVE_FIRMA_GERENTE = "pradera:firmaGerente";
 // Clave sin prefijo usada por versiones anteriores. Se migra al montar.
 const CLAVE_FIRMA_LEGACY = "firmaGerente";
 
-// Ruta del logo del parqueadero servido por Next desde /public.
-const RUTA_LOGO = "/logoParqueadero.png";
-
 // Tamaño máximo de la firma normalizada. El canvas reduce fotos de celular
 // (varios MB) a algo que quepa holgado en localStorage.
 const ANCHO_FIRMA = 600;
@@ -133,30 +130,6 @@ async function normalizarFirma(archivo: File): Promise<string> {
   return canvas.toDataURL("image/png");
 }
 
-// Carga el logo desde /public y lo normaliza a dataURL PNG. El ratio
-// (ancho/alto) viaja al PDF para que estire sin distorsionar.
-async function cargarLogo(src: string): Promise<{ src: string; ratio: number }> {
-  const res = await fetch(src);
-  if (!res.ok) throw new Error("Logo no encontrado");
-  const blob = await res.blob();
-  const bitmap = await createImageBitmap(blob);
-
-  const maxAncho = 240;
-  const escala = Math.min(1, maxAncho / bitmap.width);
-  const ancho = Math.max(1, Math.round(bitmap.width * escala));
-  const alto = Math.max(1, Math.round(bitmap.height * escala));
-
-  const canvas = document.createElement("canvas");
-  canvas.width = ancho;
-  canvas.height = alto;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("El navegador no expone contexto 2D");
-  ctx.drawImage(bitmap, 0, 0, ancho, alto);
-  bitmap.close();
-
-  return { src: canvas.toDataURL("image/png"), ratio: ancho / alto };
-}
-
 type ContratoState = {
   datos: DatosContratoPDF;
   incluir: Record<string, boolean>;
@@ -192,11 +165,14 @@ export default function VehiculosPage() {
   const [firmaGerente, setFirmaGerente] = useState<string | null>(null);
   const firmaInputRef = useRef<HTMLInputElement>(null);
 
-  // Logo del contrato: cargado una vez por sesión desde /public.
-  const [logoContrato, setLogoContrato] = useState<{ src: string; ratio: number } | null>(null);
-
   // Contrato en edición. Null = modal cerrado.
   const [contrato, setContrato] = useState<ContratoState | null>(null);
+
+  // Vehículo inactivo en modo "colocar": un chip sigue al mouse y el próximo
+  // clic sobre un puesto libre lo reactiva ahí. null = modo inactivo.
+  const [colocando, setColocando] = useState<VehiculoDB | null>(null);
+  const [mouse, setMouse] = useState<{ x: number; y: number } | null>(null);
+  const [puestoHover, setPuestoHover] = useState<string | null>(null);
 
   // Permisos según rol
   const canCreate = user?.role === "gerente";
@@ -245,13 +221,6 @@ export default function VehiculosPage() {
     } catch {
       // Modo privado o almacenamiento bloqueado: se sigue sin firma persistida.
     }
-
-    // Logo del parqueadero: se carga una vez por sesión y se cachea en estado.
-    cargarLogo(RUTA_LOGO)
-      .then(setLogoContrato)
-      .catch(() => {
-        // Sin logo, el contrato se genera igual: el generador lo omite.
-      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -266,6 +235,19 @@ export default function VehiculosPage() {
       window.removeEventListener("scroll", cerrar);
     };
   }, [menu]);
+
+  // Modo "colocar": el chip persigue al puntero y ESC aborta la operación.
+  useEffect(() => {
+    if (!colocando) return;
+    const mover = (e: MouseEvent) => setMouse({ x: e.clientX, y: e.clientY });
+    const cancelar = (e: KeyboardEvent) => { if (e.key === "Escape") setColocando(null); };
+    window.addEventListener("mousemove", mover);
+    window.addEventListener("keydown", cancelar);
+    return () => {
+      window.removeEventListener("mousemove", mover);
+      window.removeEventListener("keydown", cancelar);
+    };
+  }, [colocando]);
 
   const puestosLibres = puestos.filter(p =>
     !p.estado_puesto || String(p.numero_puesto) === String(form.puesto)
@@ -413,6 +395,38 @@ export default function VehiculosPage() {
     await loadInactivos();
   };
 
+  // Reactivación desde el mapa: el vehículo inactivo ya no tiene puesto en BD
+  // (el modelo lo desvinculó al inactivar), así que el estado y la ubicación
+  // viajan juntos en un solo PATCH.
+  const colocarEnPuesto = async (puesto: PuestoDB) => {
+    if (!colocando || puesto.estado_puesto) return;
+
+    const ok = await confirmar(
+      `¿Reactivar ${colocando.placa} en el puesto P-${puesto.numero_puesto}?`,
+      "Reactivar vehículo",
+      "Sí, reactivar"
+    );
+    if (!ok) return;
+
+    const res = await fetchSeguro(`/api/vehiculos/${colocando.placa}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        estado: "activo",
+        puestosIdPuesto: Number(puesto.id),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alertaError(data.error || "No se pudo reactivar el vehículo");
+      return;
+    }
+    alertaExito(`Vehículo ${colocando.placa} reactivado en P-${puesto.numero_puesto}.`);
+    setColocando(null);
+    await loadPuestos();
+    await loadInactivos();
+  };
+
   // Alterna el estado de pago desde el menú contextual del mapa.
   const marcarPagado = async (placa: string, pagado: boolean) => {
     setMenu(null);
@@ -533,14 +547,14 @@ export default function VehiculosPage() {
 
   // Vuelca el estado del modal en el objeto que consume el generador de PDF.
   // El mapa `incluir` viaja aparte: el generador omite las filas desmarcadas en
-  // vez de pintarlas como "—".
+  // vez de pintarlas como "—". El logo no se fija aquí: al omitirlo, el
+  // generador resuelve el suyo desde lib/logoPdf.
   const formatearContrato = (c: ContratoState) => {
     let datos: DatosContratoPDF = {
       placa: c.datos.placa,
       nombre: c.datos.nombre,
       doc: c.datos.doc,
       firmaGerente,
-      logo: logoContrato,
     };
     for (const campo of CAMPOS_CONTRATO) {
       if (c.incluir[campo.clave] === false) continue;
@@ -619,6 +633,18 @@ export default function VehiculosPage() {
 
       {/* VISTA MAPA INTERACTIVO */}
       <Tarjeta style={{ background: C.surface, padding: 24 }}>
+        {colocando && (
+          <div style={{
+            marginBottom: 16, padding: "10px 14px", borderRadius: 8,
+            background: "#fef3c7", border: "1px solid #f59e0b",
+            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
+          }}>
+            <span style={{ fontSize: 13, color: "#78350f" }}>
+              Colocando <b>{colocando.placa}</b>. Haz clic en un puesto libre para reactivarlo, o pulsa ESC para cancelar.
+            </span>
+            <Boton small variant="ghost" onClick={() => setColocando(null)}>Cancelar</Boton>
+          </div>
+        )}
         <p style={{ color: C.sub, fontSize: 14, marginBottom: 20 }}>
           Arrastra los vehículos para moverlos de puesto. Haz clic en un vehículo para ver sus detalles o enviarlo a la papelera.
         </p>
@@ -630,15 +656,20 @@ export default function VehiculosPage() {
           {puestos.map(p => {
             const v = p.vehiculoActual;
             const ocupado = p.estado_puesto && !!v;
+            const resaltado = !!colocando && !ocupado && puestoHover === p.id;
 
             return (
               <div
                 key={p.id}
                 onDragOver={handleDragOver}
                 onDrop={(e) => handleDrop(e, p.id, ocupado)}
+                onClick={() => { if (colocando && !ocupado) colocarEnPuesto(p); }}
+                onMouseEnter={() => { if (colocando && !ocupado) setPuestoHover(p.id); }}
+                onMouseLeave={() => setPuestoHover(null)}
                 style={{
-                  border: `2px dashed ${ocupado ? "transparent" : C.border}`,
-                  background: ocupado ? `${C.accent}0F` : "transparent",
+                  border: `2px dashed ${resaltado ? "#4ade80" : ocupado ? "transparent" : C.border}`,
+                  background: resaltado ? "#dcfce3" : ocupado ? `${C.accent}0F` : "transparent",
+                  cursor: colocando ? (ocupado ? "not-allowed" : "crosshair") : undefined,
                   borderRadius: 8,
                   height: 100,
                   display: "flex",
@@ -1059,26 +1090,13 @@ export default function VehiculosPage() {
                     <p style={{ color: C.sub, fontSize: 12 }}>Último puesto conocido: {v.puesto || "Ninguno"}</p>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <Boton small variant="outline" onClick={async () => {
-                        const ok = await confirmar(`¿Reactivar el vehículo ${v.placa}?`, "Reactivar", "Sí, reactivar");
-                        if (!ok) return;
-
-                        // Reactivación real: PATCH de estado. El modelo reocupa
-                        // el puesto reservado por el contrato si sigue libre.
-                        const res = await fetchSeguro(`/api/vehiculos/${v.placa}`, {
-                          method: "PATCH",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ estado: "activo" }),
-                        });
-                        const data = await res.json().catch(() => ({}));
-                        if (!res.ok) {
-                          alertaError(data.error || "No se pudo reactivar el vehículo");
-                          return;
-                        }
-                        alertaExito("Vehículo reactivado.");
-                        await loadInactivos();
-                        await loadPuestos();
-                      }}>
+                    {/* Reactivar no dispara el PATCH aquí: pasa al modo
+                        "colocar" en el mapa, donde el puesto se elige con un
+                        clic y el estado viaja en el mismo request. */}
+                    <Boton small variant="outline" onClick={() => {
+                      setPapeleraAbierta(false);
+                      setColocando(v);
+                    }}>
                       Reactivar
                     </Boton>
                     <Boton small danger onClick={async () => {
@@ -1097,6 +1115,34 @@ export default function VehiculosPage() {
             </div>
           )}
         </Modal>
+      )}
+
+      {/* CHIP FLOTANTE: sigue al puntero mientras el modo "colocar" está activo */}
+      {colocando && mouse && (
+        <div
+          style={{
+            position: "fixed",
+            left: mouse.x + 14,
+            top: mouse.y + 14,
+            padding: "8px 12px",
+            background: "#e0f2fe",
+            border: "1px solid #38bdf8",
+            borderRadius: 8,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+            pointerEvents: "none",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 13,
+            fontWeight: 700,
+            fontFamily: "Syne",
+            color: "#1e293b",
+          }}
+        >
+          <span style={{ fontSize: 18 }}>{obtenerIconoClase(colocando.clase_vehiculo)}</span>
+          {colocando.placa}
+        </div>
       )}
     </div>
   );

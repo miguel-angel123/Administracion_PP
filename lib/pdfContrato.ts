@@ -4,6 +4,7 @@
 "use client";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { cargarLogoPDF, logoPDFSincrono, estamparLogoPDF, type LogoPDF } from "./logoPdf";
 
 // Claves de campos opcionales. El llamador pasa un mapa { campo: boolean }:
 // un campo marcado false se omite del PDF por completo, no sólo se deja vacío.
@@ -27,7 +28,8 @@ export type DatosContratoPDF = {
   firmaGerente?: string | null;
   // Logo del parqueadero ya horneado a dataURL. El ratio (ancho/alto) viaja
   // aparte porque jsPDF no expone dimensiones del dataURL que recibe.
-  logo?: { src: string; ratio: number } | null;
+  // `undefined` = usar el logo precargado; `null` = contrato sin logo.
+  logo?: LogoPDF | null;
 };
 
 export interface OpcionesContratoPDF {
@@ -39,8 +41,6 @@ const AZUL: [number, number, number] = [59, 130, 246];
 const ALTO_FIRMA = 20;
 // Ancho de la imagen de firma, centrada sobre su línea.
 const ANCHO_FIRMA = 52;
-const ANCHO_LOGO_MAX = 60;
-const ALTO_LOGO_MAX = 30;
 
 function texto(v: string | null | undefined) {
   return v && String(v).trim() ? String(v) : "—";
@@ -81,22 +81,6 @@ function estamparFirma(doc: jsPDF, imagen: string, x: number, yLinea: number) {
   }
 }
 
-// Dibuja el logo conservando su relación de aspecto dentro de un recuadro
-// máximo, anclado arriba-izquierda.
-function estamparLogo(doc: jsPDF, logo: { src: string; ratio: number }) {
-  let w = ANCHO_LOGO_MAX;
-  let h = w / logo.ratio;
-  if (h > ALTO_LOGO_MAX) {
-    h = ALTO_LOGO_MAX;
-    w = h * logo.ratio;
-  }
-  try {
-    doc.addImage(logo.src, formatoImagen(logo.src), 14, 10, w, h, undefined, "FAST");
-  } catch {
-    // Un logo roto no bloquea el contrato.
-  }
-}
-
 // Arma el contrato completo y lo devuelve como Blob. Es la base de la descarga
 // y del compartir: el documento se genera una sola vez por llamada.
 export function construirContratoPDFBlob(
@@ -106,7 +90,9 @@ export function construirContratoPDFBlob(
   const inc = opts.incluir ?? {};
   const doc = new jsPDF();
 
-  if (d.logo) estamparLogo(doc, d.logo);
+  // d.logo === undefined → usa el logo precargado. null explícito → sin logo.
+  const logo = d.logo === undefined ? logoPDFSincrono() : d.logo;
+  estamparLogoPDF(doc, logo, 14, 10, 60, 30);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
@@ -180,11 +166,14 @@ export function construirContratoPDFBlob(
 }
 
 // Descarga directa. Se usa como respaldo cuando el navegador no sabe compartir.
-export function descargarContratoPDF(
+export async function descargarContratoPDF(
   d: DatosContratoPDF,
   opts: OpcionesContratoPDF = {}
-): void {
-  const url = URL.createObjectURL(construirContratoPDFBlob(d, opts));
+): Promise<void> {
+  // Si el llamador no fijó logo (undefined), esperamos el precargado. Un valor
+  // explícito —incluido null— se respeta tal cual.
+  const logo = d.logo === undefined ? await cargarLogoPDF() : d.logo;
+  const url = URL.createObjectURL(construirContratoPDFBlob({ ...d, logo }, opts));
   const enlace = document.createElement("a");
 
   enlace.href = url;
@@ -205,7 +194,10 @@ export async function compartirContratoPDF(
   d: DatosContratoPDF,
   opts: OpcionesContratoPDF = {}
 ): Promise<"compartido" | "descargado"> {
-  const archivo = new File([construirContratoPDFBlob(d, opts)], nombreArchivo(d), {
+  // Se resuelve el logo antes de construir el Blob: el `File` se crea una sola
+  // vez y el fallback de descarga reusa el mismo valor ya resuelto.
+  const logo = d.logo === undefined ? await cargarLogoPDF() : d.logo;
+  const archivo = new File([construirContratoPDFBlob({ ...d, logo }, opts)], nombreArchivo(d), {
     type: "application/pdf",
   });
 
@@ -224,6 +216,7 @@ export async function compartirContratoPDF(
     }
   }
 
-  descargarContratoPDF(d, opts);
+  // Al pasar `logo` explícito (aunque sea null) no se re-dispara la carga.
+  await descargarContratoPDF({ ...d, logo }, opts);
   return "descargado";
 }

@@ -6,6 +6,7 @@
 // jspdf y jspdf-autotable se cargan con `await import(...)` dentro del
 // handler: el bundle del navegador no los incluye en el árbol inicial,
 // solo cuando el operador dispara la exportación.
+import { cargarLogoPDF, estamparLogoPDF } from "./logoPdf";
 
 // Escapa un valor para CSV. RFC 4180: si contiene coma, comilla, salto de
 // línea o el delimitador, se envuelve en comillas y las comillas internas
@@ -68,23 +69,30 @@ export interface ReportePDF {
 
 export async function exportarReportePDF(r: ReportePDF) {
   // Carga diferida: dos paquetes grandes que solo se necesitan al hacer clic.
-  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+  // El logo viaja en el mismo Promise.all para no sumar un await extra.
+  const [{ default: jsPDF }, { default: autoTable }, logo] = await Promise.all([
     import("jspdf"),
     import("jspdf-autotable"),
+    cargarLogoPDF(),
   ]);
 
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const ANCHO_PAGINA = doc.internal.pageSize.getWidth();
 
   // --- Encabezado ---
+  // Logo anclado arriba-izquierda. Si se dibuja, el título se desplaza a su
+  // derecha para no solaparse.
+  const dibujo = estamparLogoPDF(doc, logo, 40, 28, 90, 36);
+  const xTexto = dibujo ? 40 + dibujo.w + 16 : 40;
+
   doc.setFontSize(16);
   doc.setTextColor(20);
-  doc.text(r.titulo, 40, 50);
+  doc.text(r.titulo, xTexto, 50);
 
   if (r.subtitulo) {
     doc.setFontSize(10);
     doc.setTextColor(110);
-    doc.text(r.subtitulo, 40, 68);
+    doc.text(r.subtitulo, xTexto, 68);
   }
 
   doc.setDrawColor(210);
