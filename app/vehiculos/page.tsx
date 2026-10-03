@@ -174,6 +174,17 @@ export default function VehiculosPage() {
   const [mouse, setMouse] = useState<{ x: number; y: number } | null>(null);
   const [puestoHover, setPuestoHover] = useState<string | null>(null);
 
+  // Escala visual del mapa interactivo. Permite encajar parqueaderos con muchos
+  // puestos dentro del viewport sin scroll vertical.
+  const [zoom, setZoom] = useState(1);
+  const ZOOM_MIN = 0.4;
+  const ZOOM_MAX = 1.4;
+  const ZOOM_PASO = 0.1;
+
+  const zoomOut = () => setZoom(z => Math.max(ZOOM_MIN, +(z - ZOOM_PASO).toFixed(2)));
+  const zoomIn = () => setZoom(z => Math.min(ZOOM_MAX, +(z + ZOOM_PASO).toFixed(2)));
+  const zoomReset = () => setZoom(1);
+
   // Permisos según rol
   const canCreate = user?.role === "gerente";
   const canEdit = user?.role === "gerente";
@@ -645,129 +656,209 @@ export default function VehiculosPage() {
             <Boton small variant="ghost" onClick={() => setColocando(null)}>Cancelar</Boton>
           </div>
         )}
-        <p style={{ color: C.sub, fontSize: 14, marginBottom: 20 }}>
-          Arrastra los vehículos para moverlos de puesto. Haz clic en un vehículo para ver sus detalles o enviarlo a la papelera.
-        </p>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(78px, 1fr))",
-          gap: 10
-        }}>
-          {puestos.map(p => {
-            const v = p.vehiculoActual;
-            const ocupado = p.estado_puesto && !!v;
-            const resaltado = !!colocando && !ocupado && puestoHover === p.id;
 
-            return (
+        <p style={{ color: C.sub, fontSize: 14, marginBottom: 12 }}>
+          Arrastra los vehículos para moverlos de puesto. Haz clic en un vehículo
+          para ver sus detalles o enviarlo a la papelera.
+        </p>
+
+        <div style={{ position: "relative" }}>
+          {/* Widget flotante de zoom: no forma parte del área scrollable */}
+          <div
+            style={{
+              position: "absolute",
+              top: -50,
+              right: -20,
+              zIndex: 20,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              background: C.card,
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              padding: 4,
+              boxShadow: "0 4px 12px rgba(0,0,0,.25)",
+            }}
+          >
+            <Boton
+              small
+              variant="ghost"
+              onClick={zoomOut}
+              disabled={zoom <= ZOOM_MIN}
+              title="Reducir"
+            >
+              −
+            </Boton>
+            <span
+              style={{
+                fontSize: 12,
+                minWidth: 42,
+                textAlign: "center",
+                color: C.sub,
+                fontWeight: 700,
+              }}
+            >
+              {Math.round(zoom * 100)}%
+            </span>
+            <Boton
+              small
+              variant="ghost"
+              onClick={zoomIn}
+              disabled={zoom >= ZOOM_MAX}
+              title="Ampliar"
+            >
+              +
+            </Boton>
+            <Boton small variant="ghost" onClick={zoomReset} title="Restablecer">
+              ⟲
+            </Boton>
+          </div>
+
+          {/*
+            Área del mapa: acotada a la altura restante del viewport. `dvh` respeta
+            la barra de URL móvil (que `vh` ignora y empuja la página hacia abajo).
+            Si el parqueadero no cabe a zoom=1, el usuario reduce con “−”.
+          */}
+          <div
+            style={{
+              height: "438px",
+              minHeight: 240,
+              overflow: "auto",
+              paddingRight: 4,
+            }}
+          >
+            {/*
+              `zoom` (CSS) reescala la caja Y la métrica del layout: el contenedor
+              ve el tamaño encogido y no deja hueco, a diferencia de transform:scale
+              que mantiene el layout original. Chromium, Safari y Firefox 126+ lo
+              soportan.
+            */}
+            <div style={{ zoom }}>
               <div
-                key={p.id}
-                onDragOver={handleDragOver}
-                onDrop={(e) => handleDrop(e, p.id, ocupado)}
-                onClick={() => { if (colocando && !ocupado) colocarEnPuesto(p); }}
-                onMouseEnter={() => { if (colocando && !ocupado) setPuestoHover(p.id); }}
-                onMouseLeave={() => setPuestoHover(null)}
                 style={{
-                  border: `2px dashed ${resaltado ? "#4ade80" : ocupado ? "transparent" : C.border}`,
-                  background: resaltado ? "#dcfce3" : ocupado ? `${C.accent}0F` : "transparent",
-                  cursor: colocando ? (ocupado ? "not-allowed" : "crosshair") : undefined,
-                  borderRadius: 8,
-                  height: 100,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  position: "relative",
-                  transition: "background .15s",
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(78px, 1fr))",
+                  gap: 10,
                 }}
               >
-                {!ocupado && (
-                  <span
-                    style={{
-                      position: "absolute", top: 4, left: 6,
-                      fontSize: 9, fontWeight: 700, color: C.muted, letterSpacing: .3,
-                    }}
-                  >
-                    libre
-                  </span>
-                )}
+                {puestos.map(p => {
+                  const v = p.vehiculoActual;
+                  const ocupado = p.estado_puesto && !!v;
+                  const resaltado = !!colocando && !ocupado && puestoHover === p.id;
 
-                <span
-                  style={{
-                    fontFamily: "Syne", fontWeight: 800, fontSize: 26,
-                    color: ocupado ? C.accent : C.muted, lineHeight: 1,
-                  }}
-                >
-                  {p.numero_puesto}
-                </span>
+                  return (
+                    <div
+                      key={p.id}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) => handleDrop(e, p.id, ocupado)}
+                      onClick={() => { if (colocando && !ocupado) colocarEnPuesto(p); }}
+                      onMouseEnter={() => { if (colocando && !ocupado) setPuestoHover(p.id); }}
+                      onMouseLeave={() => setPuestoHover(null)}
+                      style={{
+                        border: `2px dashed ${resaltado ? "#4ade80" : ocupado ? "transparent" : C.border}`,
+                        background: resaltado ? "#dcfce3" : ocupado ? `${C.accent}0F` : "transparent",
+                        cursor: colocando ? (ocupado ? "not-allowed" : "crosshair") : undefined,
+                        borderRadius: 8,
+                        height: 100,
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        position: "relative",
+                        transition: "background .15s",
+                      }}
+                    >
+                      {!ocupado && (
+                        <span
+                          style={{
+                            position: "absolute", top: 4, left: 6,
+                            fontSize: 9, fontWeight: 700, color: C.muted, letterSpacing: .3,
+                          }}
+                        >
+                          libre
+                        </span>
+                      )}
 
-                {ocupado && v && (
-                  <div
-                    draggable={canEdit}
-                    onDragStart={(e) => handleDragStart(e, v.placa)}
-                    onMouseEnter={() => setHover(v.placa)}
-                    onMouseLeave={() => setHover(null)}
-                    onContextMenu={e => {
-                      e.preventDefault();
-                      if (!canEdit) return;
-                      setMenu({ placa: v.placa, x: e.clientX, y: e.clientY, pagado: !!v.pagado });
-                    }}
-                    onClick={() =>
-                      openView({
-                        placa: v.placa,
-                        nombre: v.nombre,
-                        tipo: v.tipo,
-                        tipo_icono: v.tipo_icono || undefined,
-                        clase_vehiculo: v.clase_vehiculo || undefined,
-                        color: v.color || "",
-                        doc: v.doc,
-                        telefono: v.telefono || undefined,
-                        puesto: String(p.numero_puesto),
-                        ingreso: v.ingreso,
-                        precio: v.precio,
-                        dia_pago: v.dia_pago,
-                        pagado: v.pagado,
-                      })
-                    }
-                    style={{
-                      marginTop: 6,
-                      display: "flex", flexDirection: "column", alignItems: "center", gap: 1,
-                      cursor: canEdit ? "grab" : "pointer", userSelect: "none",
-                    }}
-                  >
-                    <span style={{ fontSize: 20, lineHeight: 1 }}>{v.tipo_icono || "🚗"}</span>
-                    <span style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 10, color: C.text }}>
-                      {v.placa}
-                    </span>
-                  </div>
-                )}
-
-                {hover === v?.placa && v && (
-                  <div
-                    style={{
-                      position: "absolute", top: "100%", left: 0, zIndex: 10,
-                      marginTop: 6, padding: "8px 10px", minWidth: 170,
-                      background: C.card, border: `1px solid ${C.border}`,
-                      borderRadius: 8, fontSize: 11, color: C.text,
-                      boxShadow: "0 6px 18px rgba(0,0,0,.5)", whiteSpace: "nowrap",
-                      pointerEvents: "none",
-                    }}
-                  >
-                    <div>
-                      <b>Precio:</b>{" "}
-                      {v.precio != null ? `$${Number(v.precio).toLocaleString("es-CO")}` : "—"}
-                    </div>
-                    <div><b>Día de pago:</b> {v.dia_pago ?? "—"}</div>
-                    <div>
-                      <b>Estado:</b>{" "}
-                      <span style={{ color: v.pagado ? C.green : C.red, fontWeight: 700 }}>
-                        {v.pagado ? "Pagado" : "Pendiente"}
+                      <span
+                        style={{
+                          fontFamily: "Syne", fontWeight: 800, fontSize: 26,
+                          color: ocupado ? C.accent : C.muted, lineHeight: 1,
+                        }}
+                      >
+                        {p.numero_puesto}
                       </span>
+
+                      {ocupado && v && (
+                        <div
+                          draggable={canEdit}
+                          onDragStart={(e) => handleDragStart(e, v.placa)}
+                          onMouseEnter={() => setHover(v.placa)}
+                          onMouseLeave={() => setHover(null)}
+                          onContextMenu={e => {
+                            e.preventDefault();
+                            if (!canEdit) return;
+                            setMenu({ placa: v.placa, x: e.clientX, y: e.clientY, pagado: !!v.pagado });
+                          }}
+                          onClick={() =>
+                            openView({
+                              placa: v.placa,
+                              nombre: v.nombre,
+                              tipo: v.tipo,
+                              tipo_icono: v.tipo_icono || undefined,
+                              clase_vehiculo: v.clase_vehiculo || undefined,
+                              color: v.color || "",
+                              doc: v.doc,
+                              telefono: v.telefono || undefined,
+                              puesto: String(p.numero_puesto),
+                              ingreso: v.ingreso,
+                              precio: v.precio,
+                              dia_pago: v.dia_pago,
+                              pagado: v.pagado,
+                            })
+                          }
+                          style={{
+                            marginTop: 6,
+                            display: "flex", flexDirection: "column", alignItems: "center", gap: 1,
+                            cursor: canEdit ? "grab" : "pointer", userSelect: "none",
+                          }}
+                        >
+                          <span style={{ fontSize: 20, lineHeight: 1 }}>{v.tipo_icono || "🚗"}</span>
+                          <span style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 10, color: C.text }}>
+                            {v.placa}
+                          </span>
+                        </div>
+                      )}
+
+                      {hover === v?.placa && v && (
+                        <div
+                          style={{
+                            position: "absolute", top: "100%", left: 0, zIndex: 10,
+                            marginTop: 6, padding: "8px 10px", minWidth: 170,
+                            background: C.card, border: `1px solid ${C.border}`,
+                            borderRadius: 8, fontSize: 11, color: C.text,
+                            boxShadow: "0 6px 18px rgba(0,0,0,.5)", whiteSpace: "nowrap",
+                            pointerEvents: "none",
+                          }}
+                        >
+                          <div>
+                            <b>Precio:</b>{" "}
+                            {v.precio != null ? `$${Number(v.precio).toLocaleString("es-CO")}` : "—"}
+                          </div>
+                          <div><b>Día de pago:</b> {v.dia_pago ?? "—"}</div>
+                          <div>
+                            <b>Estado:</b>{" "}
+                            <span style={{ color: v.pagado ? C.green : C.red, fontWeight: 700 }}>
+                              {v.pagado ? "Pagado" : "Pendiente"}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
+          </div>
         </div>
       </Tarjeta>
 
@@ -892,7 +983,7 @@ export default function VehiculosPage() {
               </select>
             </FilaFormulario>
           )}
-
+          
           {modal === "edit" && (
             <FilaFormulario label="Puesto asignado">
               <select value={form.puestoSeleccionado || ""} onChange={e => setForm({ ...form, puestoSeleccionado: e.target.value })}>

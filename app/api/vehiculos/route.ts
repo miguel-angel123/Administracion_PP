@@ -3,6 +3,7 @@
 //   GET  /api/vehiculos?recurso=tipos    → catálogo de tipos de vehículo
 //   GET  /api/vehiculos?recurso=puestos  → puestos del parqueadero
 //   GET  /api/vehiculos?recurso=papelera → vehículos mensuales inactivados
+//   GET  /api/vehiculos?recurso=notificaciones → contratos con pago vencido
 //   POST /api/vehiculos                  → registrar vehículo mensual (gerente)
 //   PUT  /api/vehiculos                  → ajustar total de puestos (gerente)
 import { NextResponse } from "next/server";
@@ -26,10 +27,10 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const recurso = searchParams.get("recurso");
 
-    // Listado, papelera y puestos son operativos: solo gerente/empleado.
-    // El catálogo de tipos lo consume /tarifas, visible a clientes: se exceptúa.
-    // Sin este guard, un cliente con la URL directa listaba vehículos aunque
-    // /vehiculos no esté en su menú permitido.
+    // Listado, papelera, notificaciones y puestos son operativos: solo
+    // gerente/empleado. El catálogo de tipos lo consume /tarifas, visible a
+    // clientes: se exceptúa. Sin este guard, un cliente con la URL directa
+    // listaba vehículos aunque /vehiculos no esté en su menú permitido.
     const esOperativo = sesion.role === "gerente" || sesion.role === "empleado";
     if (!esOperativo && recurso !== "tipos") {
       return NextResponse.json({ error: "Prohibido" }, { status: 403 });
@@ -48,6 +49,15 @@ export async function GET(req: Request) {
     if (recurso === "papelera") {
       const inactivos = await vehiculosModel.listarVehiculosInactivos();
       return NextResponse.json(inactivos);
+    }
+
+    // Pagos pendientes del mes en curso. Va bajo recurso y reusa el guard
+    // `esOperativo` para no abrir un endpoint nuevo ni duplicar autorización.
+    if (recurso === "notificaciones") {
+      const pendientes = await vehiculosModel.listarContratosPendientesPago();
+      return NextResponse.json(pendientes, {
+        headers: { "Cache-Control": "no-store" },
+      });
     }
 
     // Respuesta paginada: { datos, total, pagina, tamano, totalPaginas }.

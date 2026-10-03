@@ -82,13 +82,17 @@ export async function listarPuestos() {
 //   objetivos, añade puestos consecutivos al máximo vigente.
 // - Si decrece: marca como eliminados los últimos puestos libres.
 //
-// Todo el flujo va en una transacción con LOCK TABLE para blindar dos carreras:
+// Todo el flujo va en una transacción con pg_advisory_xact_lock para blindar
+// dos carreras:
 //   1. Dos ajustes concurrentes leyendo el mismo COUNT y calculando deltas
 //      contradictorios (uno insertaría sobre el total que el otro está por borrar).
 //   2. La rama de crecimiento usa `MAX(numero_puesto)`: sin lock, dos inserts
 //      simultáneos leen el mismo MAX y duplican números.
-// SHARE ROW EXCLUSIVE bloquea INSERT/UPDATE/DELETE de otras sesiones sobre la
-// tabla, pero deja pasar SELECTs concurrentes (los listados siguen vivos).
+//
+// Antes era `LOCK TABLE puestos IN SHARE ROW EXCLUSIVE MODE`, que además de
+// serializar los ajustes bloqueaba cualquier UPDATE de puestos (crearTicket,
+// cerrarTicket). El advisory lock sólo serializa los ajustes entre sí; el
+// lock de tabla era un martillo desproporcionado para ese caso.
 export async function ajustarTotalPuestos(objetivo: number) {
   if (!objetivo || Number.isNaN(objetivo) || objetivo < 1 || objetivo > 1000) {
     throw new ErrorDominio("El total debe estar entre 1 y 1000", 400);
@@ -98,7 +102,8 @@ export async function ajustarTotalPuestos(objetivo: number) {
 
   try {
     await cliente.query("BEGIN");
-    await cliente.query("LOCK TABLE puestos IN SHARE ROW EXCLUSIVE MODE");
+    // Serializa sólo contra otros ajustes. Se libera al COMMIT/ROLLBACK.
+    await cliente.query("SELECT pg_advisory_xact_lock(hashtext('ajustar_puestos'))");
 
     // Un solo scan con FILTER calcula ambos contadores (antes eran dos SELECTs).
     const res = await cliente.query(

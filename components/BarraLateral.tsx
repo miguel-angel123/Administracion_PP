@@ -16,6 +16,9 @@ import { C } from "@/lib/tema";
 // Etiqueta visual reutilizable para mostrar el rol.
 import { Etiqueta } from "@/lib/componentes";
 
+// Estado compartido de notificaciones de pago: la campana y el modal lo leen.
+import { useNotificacionPago } from "@/components/NotificacionPago";
+
 // Menu disponible para cada rol.
 const menuPorRol: Record<string, { label: string; href: string; icon: string }[]> = {
   // Opciones visibles para gerente.
@@ -70,6 +73,8 @@ interface Props {
 export default function BarraLateral({ open = false, onClose }: Props) {
   // Lee el usuario autenticado y la funcion para cerrar sesion.
   const { user, logout } = useAuth();
+  // Estado compartido de notificaciones de pago.
+  const { abrir, lista } = useNotificacionPago();
   // Ruta actual, usada para marcar el enlace activo.
   const pathname = usePathname();
   // Router para redirigir despues del logout.
@@ -120,13 +125,47 @@ export default function BarraLateral({ open = false, onClose }: Props) {
 
       {/* Bloque de identidad del usuario autenticado. */}
       <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
-        <div style={{
-          // Caja del icono del rol.
-          width: 40, height: 40, borderRadius: 12, background: C.card,
-          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, marginBottom: 8,
-        }}>
-          {/* Icono correspondiente al rol del usuario. */}
-          {iconosRol[user.role]}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <div style={{
+            // Caja del icono del rol.
+            width: 40, height: 40, borderRadius: 12, background: C.card,
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20,
+          }}>
+            {/* Icono correspondiente al rol del usuario. */}
+            {iconosRol[user.role]}
+          </div>
+          {/* Campana de pagos pendientes: visible solo a personal operativo. */}
+          {(user.role === "gerente" || user.role === "empleado") && (
+            <button
+              type="button"
+              onClick={abrir}
+              title="Notificaciones de pago"
+              aria-label="Notificaciones de pago"
+              style={{
+                position: "relative",
+                background: "transparent",
+                border: `1px solid ${C.border}`,
+                borderRadius: 10,
+                width: 40, height: 40,
+                cursor: "pointer",
+                fontSize: 18, color: C.sub,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              🔔
+              {lista.length > 0 && (
+                <span style={{
+                  position: "absolute", top: -6, right: -6,
+                  background: C.red, color: "#fff",
+                  fontSize: 10, fontWeight: 700,
+                  borderRadius: 99, minWidth: 18, height: 18, padding: "0 5px",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  {lista.length}
+                </span>
+              )}
+            </button>
+          )}
         </div>
         {/* Nombre del usuario actual. */}
         <p style={{ fontWeight: 600, fontSize: 13, lineHeight: 1.3 }}>{user.name}</p>

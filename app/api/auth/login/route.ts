@@ -1,7 +1,8 @@
 // Endpoint de autenticación. Emite la cookie httpOnly con el JWT firmado.
 // NextResponse crea respuestas JSON y permite setear cookies.
 import { NextResponse } from "next/server";
-// bcrypt compara la contrasena escrita contra el hash guardado.
+// bcryptjs compara contra el hash sin bloquear el event loop del server.
+// Formato $2a/$2b compatible con hashes generados por bcrypt nativo.
 import bcrypt from "bcryptjs";
 // ensureSeed prepara datos minimos si la base todavia no esta lista.
 import { ensureSeed } from "@/lib/seed";

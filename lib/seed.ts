@@ -195,6 +195,65 @@ const MIGRACION_SQL = `
     ON vehiculos(estados_id_estado, fecha_eliminado)
     WHERE fecha_eliminado IS NULL;
 
+  -- Índices de actividad reciente. Filtran por fecha_ingreso/fecha_inicio >=
+  -- inicio de semana (P10) sin escanear el histórico completo de tickets y
+  -- contratos.
+  CREATE INDEX IF NOT EXISTS idx_tickets_fecha_ingreso ON tickets(fecha_ingreso);
+  CREATE INDEX IF NOT EXISTS idx_contratos_fecha_inicio ON contratos(fecha_inicio);
+
+  -- Índices parciales por patrón de acceso real:
+  --   - idx_tickets_abiertos: el SELECT "ticket abierto por placa" que corre
+  --     en crearTicket, cerrarTicket y actualizarVehiculo.
+  --   - idx_tickets_doc_historial: historial del cliente (tickets cerrados).
+  --   - idx_contratos_placa_inicio: último contrato por placa (LATERAL de
+  --     listarVehiculos y de perfil).
+  CREATE INDEX IF NOT EXISTS idx_tickets_abiertos
+    ON tickets (vehiculos_placa, fecha_ingreso DESC)
+    WHERE fecha_salida IS NULL AND fecha_eliminado IS NULL;
+
+  CREATE INDEX IF NOT EXISTS idx_tickets_doc_historial
+    ON tickets (usuarios_documento, fecha_ingreso DESC)
+    WHERE fecha_salida IS NOT NULL AND fecha_eliminado IS NULL;
+
+  CREATE INDEX IF NOT EXISTS idx_contratos_placa_inicio
+    ON contratos (vehiculos_placa, fecha_inicio DESC)
+    WHERE fecha_eliminado IS NULL;
+
+  -- Alerta de pago del contrato: el chequeo por login filtra por dia_pago y
+  -- por el mes pagado en curso. Sin índice, escanea contratos completo.
+  CREATE INDEX IF NOT EXISTS idx_contratos_dia_pago_activos
+    ON contratos (dia_pago, pagado_mes, fecha_fin)
+    WHERE fecha_eliminado IS NULL;
+
+  -- Índices trigram para los listados con ILIKE '%texto%': el btree no sirve
+  -- para búsqueda mid-string. Se aísla en un DO block porque si el rol de
+  -- conexión no puede habilitar pg_trgm (p.ej. Neon sin el flag desde la
+  -- consola), un CREATE EXTENSION suelto abortaría todo MIGRACION_SQL en cada
+  -- cold start. Con el guard, los trigram quedan omitidos y la app sigue.
+  DO $trgm$
+  DECLARE
+    tiene_trgm boolean := false;
+  BEGIN
+    BEGIN
+      CREATE EXTENSION IF NOT EXISTS pg_trgm;
+      tiene_trgm := true;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'pg_trgm no disponible (%), índices trigram omitidos', SQLERRM;
+    END;
+
+    IF tiene_trgm THEN
+      EXECUTE 'CREATE INDEX IF NOT EXISTS idx_usuarios_nombre_trgm
+                 ON usuarios USING gin (nombre gin_trgm_ops)';
+      EXECUTE 'CREATE INDEX IF NOT EXISTS idx_vehiculos_placa_trgm
+                 ON vehiculos USING gin (placa gin_trgm_ops)';
+      EXECUTE 'CREATE INDEX IF NOT EXISTS idx_logs_accion_trgm
+                 ON logs_sistema USING gin (accion gin_trgm_ops)';
+      EXECUTE 'CREATE INDEX IF NOT EXISTS idx_usuarios_documento_text_trgm
+                 ON usuarios USING gin ((documento::text) gin_trgm_ops)';
+    END IF;
+  END
+  $trgm$;
+
   -- Contador global para polling condicional. Se crea aquí (no en un script
   -- aparte) porque el cliente sondea /api/version en cada arranque; si la
   -- tabla falta, el endpoint devolvía 500 hasta que alguien corriera el SQL
@@ -224,12 +283,23 @@ const MIGRACION_SQL = `
   -- Se omite toda tabla que todavía no exista: DROP TRIGGER ... ON <tabla>
   -- resuelve el nombre de la tabla antes de comprobar el trigger, así que
   -- IF EXISTS no protege contra una tabla ausente y el bloque entero aborta.
+  --
+  -- logs_sistema queda FUERA del trigger: cada INSERT de auditoría (login,
+  -- logout, altas) bumpeaba el contador global y despertaba a todos los
+  -- clientes con polling activo. Es la tabla de mayor rotación del sistema y
+  -- ninguno de sus cambios es dato en vivo para la UI. Se dropea el trigger
+  -- en BDs donde ya existía, bajo to_regclass porque la tabla puede faltar
+  -- en un arranque limpio.
   DO $do$
   DECLARE t text;
   BEGIN
+    IF to_regclass('logs_sistema') IS NOT NULL THEN
+      EXECUTE 'DROP TRIGGER IF EXISTS tr_version_logs_sistema ON logs_sistema';
+    END IF;
+
     FOREACH t IN ARRAY ARRAY[
       'tickets','vehiculos','contratos','puestos',
-      'usuarios','tarifa','sugerencias','logs_sistema'
+      'usuarios','tarifa','sugerencias'
     ] LOOP
       IF to_regclass(t) IS NULL THEN CONTINUE; END IF;
       EXECUTE format('DROP TRIGGER IF EXISTS tr_version_%I ON %I', t, t);

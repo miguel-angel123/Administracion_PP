@@ -17,6 +17,10 @@ import LoginPage from "@/components/LoginPage";
 // BannerConexion avisa si las consultas live pierden conexion con el servidor.
 import BannerConexion from "@/components/BannerConexion";
 
+// Provider, hook y modal de notificaciones de pago viven en un solo archivo:
+// un único módulo evita que el "use client" y el contexto se dupliquen.
+import { NotificacionPagoProvider, ModalNotificacionPago } from "@/components/NotificacionPago";
+
 // C contiene la paleta de colores centralizada del proyecto.
 import { C } from "@/lib/tema";
 
@@ -45,8 +49,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   // Si hay usuario, se muestra la estructura privada de la aplicacion.
+  // El provider de notificaciones envuelve todo el layout: sidebar y modal
+  // consumen el mismo contexto sin fetches duplicados.
   return (
-    // Contenedor horizontal: sidebar a la izquierda y contenido a la derecha.
+    <NotificacionPagoProvider>
+    {/* Contenedor horizontal: sidebar a la izquierda y contenido a la derecha. */}
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
       {/* Global: un solo store, un solo banner. No aparece en login (arriba
           hay return temprano) ni se monta dos veces por página. */}
@@ -80,6 +87,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         {/* children es la pagina actual: dashboard, vehiculos, tickets, etc. */}
         {children}
       </main>
+
+      {/* Modal de pagos pendientes: gestionado por el provider de arriba. */}
+      <ModalNotificacionPago />
     </div>
+    </NotificacionPagoProvider>
   );
 }

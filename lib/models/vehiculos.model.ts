@@ -5,6 +5,7 @@
 import pool from "@/lib/db";
 // ErrorDominio permite que las APIs respondan con status controlado.
 import { ErrorDominio } from "./errores";
+
 // Se usa para crear o validar propietarios tipo cliente.
 import { crearClienteSiNoExiste } from "./usuarios.model";
 // Validaciones de formato con lanzamiento de error para el backend.
@@ -789,9 +790,13 @@ export async function actualizarVehiculo(
 }
 
 // Soft delete: se conserva el registro para historial, pero deja de aparecer.
-// Libera el puesto del contrato activo, cierra el contrato y marca el vehículo
+// Libera el puesto del contrato VIGENTE, cierra el contrato y marca el vehículo
 // como eliminado. Los tres UPDATE van en una transacción: si algo falla no queda
 // un vehículo sin contrato o un puesto huérfano ocupado.
+//
+// El filtro `fecha_fin > NOW()` es deliberado: sin él, un contrato ya vencido
+// cuyo puesto fue reutilizado por otro vehículo quedaba marcado como libre
+// (falso FALSE) y rompía `ajustarTotalPuestos` (creía que sobraban libres).
 export async function eliminarVehiculoSoft(placa: string) {
   // Reserva conexion para transaccion.
   const cliente = await pool.connect();
@@ -800,14 +805,17 @@ export async function eliminarVehiculoSoft(placa: string) {
     // Inicia transaccion.
     await cliente.query("BEGIN");
 
-    // Libera puestos asociados a contratos del vehiculo.
+    // Libera SOLO el puesto del contrato vigente del vehiculo. Un contrato
+    // vencido ya no retiene puesto: su fila en `puestos` puede pertenecer a
+    // otro vehículo hoy.
     await cliente.query(
       `UPDATE puestos p
        SET estado_puesto = FALSE
        FROM contratos c
        WHERE c.vehiculos_placa = $1
          AND c.puestos_id_puesto = p.id_puesto
-         AND c.fecha_eliminado IS NULL`,
+         AND c.fecha_eliminado IS NULL
+         AND c.fecha_fin > NOW()`,
       [placa]
     );
 
@@ -901,5 +909,57 @@ export async function listarVehiculosInactivos() {
   `);
 
   // Devuelve las filas tal como las necesita el frontend.
+  return rows;
+}
+
+// Contrato mensual con el día de pago ya alcanzado y sin sellar este mes.
+// Alimenta la campana del sidebar: es la única fuente del badge y del modal
+// de pagos pendientes.
+export interface ContratoNotificacion {
+  placa: string;
+  propietario: string;
+  doc: string;
+  dia_pago: number;
+  precio: number | null;
+  tipo_nombre: string | null;
+  tipo_icono: string | null;
+}
+
+// Contratos mensuales cuyo día de pago ya llegó en el mes en curso y siguen
+// sin marcar pagado. `pagado_mes` guarda el mes en que se selló: al cambiar
+// de mes el sello deja de coincidir y el contrato vuelve a la lista solo.
+export async function listarContratosPendientesPago(): Promise<ContratoNotificacion[]> {
+  const { rows } = await pool.query(
+    `SELECT
+       c.vehiculos_placa AS placa,
+       u.nombre          AS propietario,
+       u.documento::text AS doc,
+       c.dia_pago::int   AS dia_pago,
+       c.precio::float   AS precio,
+       tv.nombre         AS tipo_nombre,
+       tv.icono          AS tipo_icono
+     FROM contratos c
+     JOIN vehiculos v ON v.placa = c.vehiculos_placa
+     JOIN usuarios  u ON u.documento = c.usuarios_documento
+     LEFT JOIN tarifa t ON t.id_tarifa = v.tarifa_id_tarifa
+     LEFT JOIN tipos_vehiculo tv ON tv.id_tipo_vehiculo = t.tipo_vehiculo_id
+     WHERE c.fecha_eliminado IS NULL
+       AND c.fecha_fin > NOW()
+       AND c.dia_pago IS NOT NULL
+       AND v.fecha_eliminado IS NULL
+       AND v.estados_id_estado = (SELECT id_estado FROM estados WHERE nombre_estado = 'activo')
+       -- Zona Bogotá: a las 19:00 local ya es día +1 en UTC y dispararía antes.
+       AND EXTRACT(DAY FROM (NOW() AT TIME ZONE 'America/Bogota'))::int
+           >= LEAST(
+                c.dia_pago,
+                EXTRACT(DAY FROM (
+                  date_trunc('month', NOW() AT TIME ZONE 'America/Bogota')
+                  + INTERVAL '1 month' - INTERVAL '1 day'
+                ))::int
+              )
+       AND c.pagado_mes IS DISTINCT FROM
+           TO_CHAR(NOW() AT TIME ZONE 'America/Bogota', 'YYYY-MM')
+     ORDER BY c.dia_pago, c.vehiculos_placa`
+  );
   return rows;
 }

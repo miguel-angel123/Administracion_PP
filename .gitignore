@@ -52,7 +52,8 @@ next-env.d.ts
 *.core
 # Archivos temporales del asistente Aider.
 .aider*
-
+.aider.input.history.md
+.aider.chat.history.md
 # db dump
 # Dump local de base de datos; se ignora para evitar subir información sensible.
 sql/mi_base_de_datos.sql

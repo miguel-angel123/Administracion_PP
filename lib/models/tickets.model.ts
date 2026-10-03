@@ -135,10 +135,12 @@ export async function listarTickets(opts: OpcionesListado = {}) {
 //   5. Se ocupa el puesto elegido por el operador.
 //   6. Se registra log con el operador actual.
 //
-// Todo corre en una transacción con FOR UPDATE sobre el puesto: dos operadores
-// concurrentes no pueden pasar ambos la validación de "libre" y ocuparlo dos
-// veces. El alta del cliente va en la misma transacción (ver usuarios.model);
-// si el ticket falla, no queda un cliente huérfano.
+// Todo corre en una transacción con FOR UPDATE sobre el puesto y un advisory
+// lock por placa: dos operadores concurrentes no pueden pasar ambos la
+// validación de "libre" (FOR UPDATE bloquea el puesto) ni crear dos tickets
+// abiertos para la misma placa (el lock por placa serializa el SELECT del
+// paso 4). El alta del cliente va en la misma transacción (ver
+// usuarios.model); si el ticket falla, no queda un cliente huérfano.
 // Los logs se escriben DESPUÉS del COMMIT: no se registra una acción que abortó.
 //
 // Placa conocida: el operador puede corregir el TIPO de vehículo (se actualiza
@@ -191,6 +193,15 @@ export async function crearTicket(datos: {
   try {
     // Inicia transaccion.
     await cliente.query("BEGIN");
+
+    // Serializa por placa: sin esto, dos operadores podían pasar ambos el
+    // SELECT de "ticket abierto" y crear dos tickets vivos. hashtext evita
+    // colisiones alfanuméricas del lock (no usamos el entero de la placa).
+    // Se libera solo en COMMIT/ROLLBACK.
+    await cliente.query(
+      "SELECT pg_advisory_xact_lock(hashtext('ticket_' || $1))",
+      [placaLimpia]
+    );
 
     // 1. Validación del puesto. FOR UPDATE bloquea la fila hasta el COMMIT:
     //    otro intento sobre el mismo puesto espera y luego ve estado = TRUE.

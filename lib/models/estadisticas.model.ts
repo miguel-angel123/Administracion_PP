@@ -55,6 +55,11 @@ export async function obtenerIndicadores() {
 // el snapshot vigente. `generate_series` garantiza las 7 filas y el mapeo se
 // hace por posición — inmune a que el driver devuelva `dow` como string o
 // number según el OID del parser.
+//
+// El WHERE en `eventos` corta por fecha_ingreso/fecha_inicio >= inicio de
+// semana en curso: sin él, el UNION ALL escaneaba el histórico completo de
+// tickets y contratos para devolver 7 días. El tope superior lo da el JOIN
+// contra `semana`.
 export async function obtenerIngresosSemanales() {
   const { rows } = await pool.query(`
     WITH semana AS (
@@ -67,8 +72,10 @@ export async function obtenerIngresosSemanales() {
     ),
     eventos AS (
       SELECT fecha_ingreso::date AS dia FROM tickets
+      WHERE fecha_ingreso >= date_trunc('week', NOW())
       UNION ALL
       SELECT fecha_inicio::date  AS dia FROM contratos
+      WHERE fecha_inicio >= date_trunc('week', NOW())
     )
     SELECT s.dia, COUNT(e.dia)::int AS total
     FROM semana s

@@ -58,7 +58,7 @@ export async function PATCH(
     // PATCH parcial: puede llegar solo estado, solo color, solo nombre, o solo puestosIdPuesto.
     await vehiculosModel.actualizarVehiculo(placa, {
       estado: typeof body.estado === "string" ? body.estado : undefined,
-      color: typeof body.color === "string" ? body.color : undefined,
+      color: typeof body.color === "string" ? limpiarTexto(body.color, 30) : undefined,
       nombre: typeof body.nombre === "string" ? limpiarTexto(body.nombre, 100) : undefined,
       puestosIdPuesto: body.puestosIdPuesto ? Number(body.puestosIdPuesto) : undefined,
       precio: body.precio !== undefined && body.precio !== "" ? Number(body.precio) : undefined,
