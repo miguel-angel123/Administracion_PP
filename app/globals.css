@@ -1,108 +1,170 @@
+/* Importa las fuentes externas usadas por la interfaz.
+   Syne se usa para titulos/marca e Inter para texto general. */
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500;600&display=swap');
 
+/* Selector universal: aplica a todos los elementos HTML. */
 * {
+  /* Quita margenes por defecto del navegador. */
   margin: 0;
+  /* Quita rellenos por defecto del navegador. */
   padding: 0;
+  /* Hace que width/height incluyan padding y borde. */
   box-sizing: border-box;
 }
 
+/* Estilos base del documento visible. */
 body {
+  /* Fondo oscuro principal de la aplicacion. */
   background: #0A0E1A;
+  /* Color de texto base. */
   color: #E2E8F0;
+  /* Fuente principal del sistema. */
   font-family: 'Inter', sans-serif;
+  /* Garantiza que el body cubra al menos toda la pantalla. */
   min-height: 100vh;
 }
 
+/* Ancho/alto de la barra de scroll en navegadores WebKit/Chromium. */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
+/* Color del canal por donde se mueve la barra de scroll. */
 ::-webkit-scrollbar-track { background: #111827; }
+/* Color y forma del indicador movil de scroll. */
 ::-webkit-scrollbar-thumb { background: #243049; border-radius: 3px; }
 
+/* Estilo compartido para campos de formulario. */
 input, select, textarea {
+  /* Fondo oscuro del campo. */
   background: #111827;
+  /* Borde tenue para separar el campo del fondo. */
   border: 1px solid #243049;
+  /* Color del texto escrito. */
   color: #E2E8F0;
+  /* Espacio interno del campo. */
   padding: 10px 14px;
+  /* Esquinas redondeadas del campo. */
   border-radius: 8px;
+  /* Misma fuente que el resto de la interfaz. */
   font-family: 'Inter', sans-serif;
+  /* Tamano legible y consistente. */
   font-size: 14px;
+  /* Ocupa todo el ancho disponible del contenedor. */
   width: 100%;
+  /* Quita el outline azul por defecto del navegador. */
   outline: none;
+  /* Anima suavemente cambios de borde, como focus. */
   transition: border .2s;
 }
 
+/* Estado activo de campos cuando el usuario esta escribiendo. */
 input:focus, select:focus, textarea:focus {
+  /* Resalta el borde con el color principal. */
   border-color: #3B82F6;
 }
 
+/* Estilo base de todos los botones. */
 button {
+  /* Muestra cursor de mano al pasar por encima. */
   cursor: pointer;
+  /* Usa la fuente general del proyecto. */
   font-family: 'Inter', sans-serif;
+  /* Suaviza cambios visuales de hover/active. */
   transition: all .2s;
 }
 
 /* SweetAlert2: estilo consistente con la paleta oscura del proyecto. */
+/* Contenedor principal de las alertas SweetAlert2 personalizadas. */
 .swal2-popup.swal-popup {
+  /* Borde acorde a la paleta oscura. */
   border: 1px solid #243049;
+  /* Redondeo de la ventana de alerta. */
   border-radius: 14px;
+  /* Hereda la fuente del proyecto. */
   font-family: inherit;
 }
+/* Titulo y contenido HTML dentro de SweetAlert2. */
 .swal2-title, .swal2-html-container {
+  /* Mantiene texto claro sobre fondo oscuro. */
   color: #E2E8F0;
 }
 
 /* --- Responsive: sidebar off-canvas + grids colapsables --- */
+/* Boton que abre el menu lateral en pantallas pequenas. */
 .menu-toggle {
+  /* En escritorio esta oculto. */
   display: none;
+  /* En movil queda fijo sobre la pagina. */
   position: fixed;
   top: 14px;
   left: 14px;
+  /* zIndex alto para quedar encima del contenido. */
   z-index: 1100;
+  /* Tamano cuadrado estable. */
   width: 42px;
   height: 42px;
+  /* Esquinas redondeadas del boton. */
   border-radius: 10px;
+  /* Tamano del icono de menu. */
   font-size: 20px;
+  /* Centra el icono horizontal y verticalmente. */
   align-items: center;
   justify-content: center;
+  /* Evita espacio extra dentro del boton. */
   padding: 0;
 }
 
+/* Fondo oscuro detras del sidebar movil. */
 .sidebar-backdrop {
+  /* En escritorio no se muestra. */
   display: none;
 }
 
+/* Reglas aplicadas cuando el viewport mide 900px o menos. */
 @media (max-width: 900px) {
+  /* En movil el boton de menu aparece. */
   .menu-toggle {
     display: flex;
   }
 
+  /* En movil el backdrop se vuelve visible y cubre toda la pantalla. */
   .sidebar-backdrop {
     display: block;
     position: fixed;
+    /* inset 0 equivale a top/right/bottom/left en cero. */
     inset: 0;
+    /* Oscurece la pagina detras del sidebar. */
     background: rgba(0, 0, 0, .55);
+    /* Queda debajo del sidebar y debajo del boton de menu. */
     z-index: 999;
   }
 
+  /* Convierte el sidebar en panel deslizable fuera del lienzo. */
   .sidebar {
     position: fixed !important;
     top: 0;
     left: 0;
     height: 100vh;
     min-height: 100vh !important;
+    /* Queda encima del backdrop. */
     z-index: 1000;
+    /* Lo oculta desplazandolo completamente hacia la izquierda. */
     transform: translateX(-100%);
+    /* Anima la entrada/salida del menu. */
     transition: transform .25s ease;
+    /* Permite hacer scroll dentro del menu si no cabe. */
     overflow-y: auto;
   }
 
+  /* Cuando AuthGate agrega la clase open, el sidebar entra en pantalla. */
   .sidebar.open {
     transform: translateX(0);
   }
 
+  /* Ajusta el area principal para dejar espacio al boton superior. */
   .layout-main {
     padding: 68px 16px 24px !important;
   }
 
+  /* Las grillas de dos columnas pasan a una columna en movil. */
   .grid-2col {
     grid-template-columns: 1fr !important;
   }
@@ -110,39 +172,58 @@ button {
 
 /* Ticket imprimible: formato de recibo térmico simple.
    Se muestra como vista previa en el modal y, al imprimir, sustituye toda la página. */
+/* Contenedor del recibo imprimible. */
 #ticket-imprimible {
+  /* Fondo blanco porque se imprime como recibo. */
   background: #fff;
+  /* Texto negro para maxima legibilidad en papel. */
   color: #000;
+  /* Espacio interno del ticket. */
   padding: 18px 20px;
+  /* Fuente monoespaciada para apariencia de recibo termico. */
   font-family: 'Courier New', monospace;
+  /* Redondeo usado en la vista previa dentro del modal. */
   border-radius: 8px;
 }
+/* Obliga a que todo dentro del ticket use texto negro. */
 #ticket-imprimible * { color: #000; }
+/* Titulo principal del ticket. */
 #ticket-imprimible h3 {
+  /* Mantiene fuente de recibo tambien en el titulo. */
   font-family: 'Courier New', monospace;
   font-size: 16px;
   font-weight: 700;
   text-align: center;
   letter-spacing: 1px;
 }
+/* Texto secundario centrado dentro del ticket. */
 #ticket-imprimible .sub {
   text-align: center;
   font-size: 12px;
   margin-bottom: 12px;
 }
+/* Tabla del ticket ocupando todo el ancho. */
 #ticket-imprimible table { width: 100%; border-collapse: collapse; }
+/* Celdas compactas para formato de recibo. */
 #ticket-imprimible td { padding: 3px 0; font-size: 13px; vertical-align: top; }
+/* Primera columna como etiqueta en negrita. */
 #ticket-imprimible td:first-child { font-weight: 700; width: 45%; }
+/* Separador punteado tipico de recibo. */
 #ticket-imprimible hr { border: none; border-top: 1px dashed #000; margin: 10px 0; }
+/* Pie del recibo centrado y pequeno. */
 #ticket-imprimible .pie { text-align: center; font-size: 11px; margin-top: 8px; }
 
+/* Reglas especiales cuando el usuario imprime. */
 @media print {
+  /* Margen fisico de la pagina impresa. */
   @page { margin: 10mm; }
 
   /* Oculta todo el cuerpo y deja visible solo el ticket. */
   body * { visibility: hidden !important; }
+  /* Vuelve visible el ticket y sus hijos. */
   #ticket-imprimible, #ticket-imprimible * { visibility: visible !important; }
 
+  /* Hace que el ticket ocupe el area imprimible completa. */
   #ticket-imprimible {
     position: fixed !important;
     inset: 0 !important;

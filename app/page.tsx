@@ -36,6 +36,7 @@ interface TarifaAdmin {
   tipo_vehiculo_nombre: string;
   tipo_vehiculo_icono: string;
   valor_hora: number | null;
+  valor_minuto: number | null;
   valor_dia: number | null;
   valor_mes: number | null;
 }
@@ -133,6 +134,18 @@ export default function Inicio() {
     loadConfig();
   }, [user]);
 
+  // El panel arranca filtrado por el primer tipo (Automóvil en el seed).
+  // Se aplica solo cuando el campo está vacío: no pisa la elección del gerente
+  // al recargar.
+  useEffect(() => {
+    if (tiposVeh.length === 0) return;
+    setNuevaTarifa(prev => {
+      if (prev.tipoVehiculoId) return prev;
+      const auto = tiposVeh.find(t => t.nombre === "Automóvil") ?? tiposVeh[0];
+      return { ...prev, tipoVehiculoId: auto.id };
+    });
+  }, [tiposVeh]);
+
   useEffect(() => {
     if (user?.role === "cliente") {
       router.replace("/perfil");
@@ -143,9 +156,9 @@ export default function Inicio() {
   const mensuales = vehiculos.filter(v => v.tipo === "mensual" && v.estado === "activo").length;
   const pendientes = sugerencias.filter(s => s.estado === "pendiente").length;
 
-  const tarifasVisibles = nuevaTarifa.tipoVehiculoId
-    ? tarifas.filter(t => String(t.tipo_vehiculo_id) === String(nuevaTarifa.tipoVehiculoId))
-    : tarifas;
+  const tarifasVisibles = tarifas.filter(
+    t => String(t.tipo_vehiculo_id) === String(nuevaTarifa.tipoVehiculoId)
+  );
 
   const refrescarConfig = async () => {
     const [statsRes, tarifasRes] = await Promise.all([
@@ -180,13 +193,23 @@ export default function Inicio() {
   };
 
   const etiquetaValor = (m: string) =>
-    m === "por_hora" ? "Valor por hora" : m === "diario" ? "Valor por día" : "Valor por mes";
+    m === "por_minuto" ? "Valor por minuto"
+    : m === "por_hora" ? "Valor por hora"
+    : m === "diario" ? "Valor por día"
+    : "Valor por mes";
 
   const etiquetaModalidad = (m: string) =>
-    m === "por_hora" ? "Por hora" : m === "diario" ? "Diario" : m === "mensual" ? "Mensual" : m;
+    m === "por_minuto" ? "Por minuto"
+    : m === "por_hora" ? "Por hora"
+    : m === "diario" ? "Diario"
+    : m === "mensual" ? "Mensual"
+    : m;
 
   const extraerValor = (t: TarifaAdmin) =>
-    t.modalidad === "por_hora" ? t.valor_hora : t.modalidad === "diario" ? t.valor_dia : t.valor_mes;
+    t.modalidad === "por_minuto" ? t.valor_minuto
+    : t.modalidad === "por_hora" ? t.valor_hora
+    : t.modalidad === "diario" ? t.valor_dia
+    : t.valor_mes;
 
   const cargarTarifa = (t: TarifaAdmin) => {
     setTarifaEditando(t.id);
@@ -203,7 +226,13 @@ export default function Inicio() {
 
   const resetTarifa = () => {
     setTarifaEditando(null);
-    setNuevaTarifa({ tipoVehiculoId: "", modalidad: "diario", valor: "" });
+    // El tipo seleccionado se mantiene: cambiarlo tras cada guardado obliga
+    // al gerente a reseleccionar el mismo tipo tarifa tras tarifa.
+    setNuevaTarifa(prev => ({
+      tipoVehiculoId: prev.tipoVehiculoId || tiposVeh[0]?.id || "",
+      modalidad: "diario",
+      valor: "",
+    }));
   };
 
   const guardarTarifa = async () => {
@@ -234,6 +263,7 @@ export default function Inicio() {
       tipoVehiculoId: Number(nuevaTarifa.tipoVehiculoId),
       modalidad: nuevaTarifa.modalidad,
       valorHora: nuevaTarifa.modalidad === "por_hora" ? valorNum : null,
+      valorMinuto: nuevaTarifa.modalidad === "por_minuto" ? valorNum : null,
       valorDia: nuevaTarifa.modalidad === "diario" ? valorNum : null,
       valorMes: nuevaTarifa.modalidad === "mensual" ? valorNum : null,
     };
@@ -425,6 +455,7 @@ export default function Inicio() {
               value={nuevaTarifa.modalidad}
               onChange={e => setNuevaTarifa({ ...nuevaTarifa, modalidad: e.target.value })}
             >
+              <option value="por_minuto">Por minuto</option>
               <option value="por_hora">Por hora</option>
               <option value="diario">Diario</option>
               <option value="mensual">Mensual</option>

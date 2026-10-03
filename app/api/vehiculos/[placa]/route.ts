@@ -20,6 +20,12 @@ export async function GET(
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
+    // El modal de tickets (gerente/empleado) es el único consumidor. Un cliente
+    // conociendo la URL obtendría datos de propietario sin permiso.
+    if (sesion.role !== "gerente" && sesion.role !== "empleado") {
+      return NextResponse.json({ error: "Prohibido" }, { status: 403 });
+    }
+
     await ensureSeed();
     const { placa } = await params;
 
@@ -52,9 +58,13 @@ export async function PATCH(
     // PATCH parcial: puede llegar solo estado, solo color, solo nombre, o solo puestosIdPuesto.
     await vehiculosModel.actualizarVehiculo(placa, {
       estado: typeof body.estado === "string" ? body.estado : undefined,
-      color: typeof body.color === "string" ? body.color : undefined,
+      color: typeof body.color === "string" ? limpiarTexto(body.color, 30) : undefined,
       nombre: typeof body.nombre === "string" ? limpiarTexto(body.nombre, 100) : undefined,
       puestosIdPuesto: body.puestosIdPuesto ? Number(body.puestosIdPuesto) : undefined,
+      precio: body.precio !== undefined && body.precio !== "" ? Number(body.precio) : undefined,
+      diaPago: body.diaPago !== undefined && body.diaPago !== "" ? Number(body.diaPago) : undefined,
+      pagado: typeof body.pagado === "boolean" ? body.pagado : undefined,
+      clase: typeof body.clase === "string" ? limpiarTexto(body.clase, 50) : undefined,
     });
 
     await registrarLog(sesion.doc, `Editó vehículo ${placa}`);

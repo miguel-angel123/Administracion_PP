@@ -4,13 +4,20 @@ import { getSesion } from "@/lib/session";
 import { ensureSeed } from "@/lib/seed";
 import * as ticketsModel from "@/lib/models/tickets.model";
 import { respuestaError } from "@/lib/erroresHttp";
-import { limpiarPlaca, limpiarDocumento, limpiarTelefono } from "@/lib/sanitizar";
+import { limpiarPlaca, limpiarDocumento, limpiarTexto, limpiarTelefono } from "@/lib/sanitizar";
 
 export async function GET(req: Request) {
   try {
     const sesion = await getSesion();
     if (!sesion) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
+
+    // Listado de tickets solo para personal operativo. Sin este guard un
+    // cliente autenticado alcanzaba el listado con la URL directa y veía
+    // datos de todos los propietarios y vehículos.
+    if (sesion.role !== "gerente" && sesion.role !== "empleado") {
+      return NextResponse.json({ error: "Prohibido" }, { status: 403 });
     }
 
     await ensureSeed();
@@ -56,6 +63,7 @@ export async function POST(req: Request) {
     const resultado = await ticketsModel.crearTicket({
       placa: limpiarPlaca(body.placa),
       doc_propietario: limpiarDocumento(body.doc_propietario) || undefined,
+      nombre: limpiarTexto(body.nombre, 100) || undefined,
       telefono: limpiarTelefono(body.telefono) || undefined,
       puestos_id_puesto: body.puestos_id_puesto,
       tipo_vehiculo_id: body.tipo_vehiculo_id ? Number(body.tipo_vehiculo_id) : undefined,

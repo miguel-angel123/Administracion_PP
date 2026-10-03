@@ -41,7 +41,7 @@ export default function PerfilPage() {
   return (
     <div>
       <h2 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 24, marginBottom: 24 }}>Mi Perfil</h2>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div className="grid-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <Tarjeta>
           <div style={{ textAlign: "center", marginBottom: 16 }}>
             <div style={{ width: 72, height: 72, borderRadius: 20, background: `${C.green}22`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, margin: "0 auto 12px" }}>🙋</div>

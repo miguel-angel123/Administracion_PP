@@ -24,7 +24,7 @@ const MAX_FALLOS = 3;
 //   200 con cambios  → cargar()
 export function useLiveData(
   cargar: () => void | Promise<void>,
-  intervalMs = 5000
+  intervalMs = 200000000
 ) {
   const ref = useRef(cargar);
   ref.current = cargar;

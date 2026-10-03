@@ -1,7 +1,9 @@
 // Semilla y migración de esquema idempotente.
 // Se ejecuta desde cada controlador antes de operar para asegurar que existan
 // tablas, roles, estados, tarifas base, puestos y usuarios demo.
+// bcryptjs permite crear hashes de contrasenas iniciales.
 import bcrypt from "bcryptjs";
+// pool ejecuta SQL contra PostgreSQL.
 import pool from "./db";
 
 // Estado compartido vía globalThis: sobrevive al hot-reload de Next en dev
@@ -9,8 +11,14 @@ import pool from "./db";
 // En serverless cada instancia tiene su propio global: el seed corre 1 vez por
 // instancia, no en cada request.
 const globalSeed = globalThis as unknown as {
+  // Promesa compartida del seed en ejecucion o ya ejecutado.
   __seedPromise?: Promise<void>;
-  __migrado?: boolean;
+  // Firma del último script aplicado en este proceso. Es un string y no un
+  // booleano a propósito: si fuera boolean, editar MIGRACION_SQL en dev no
+  // invalidaba el cache (globalThis sobrevive al HMR) y el DDL nuevo nunca
+  // llegaba a Postgres hasta reiniciar el proceso. Comparar la firma re-aplica
+  // automáticamente cuando el SQL cambia.
+  __migrado?: string;
 };
 
 // MIGRACION_SQL agrupa cambios de esquema idempotentes:
@@ -30,6 +38,30 @@ const MIGRACION_SQL = `
   ALTER TABLE sugerencias ADD COLUMN IF NOT EXISTS estado VARCHAR(20) NOT NULL DEFAULT 'pendiente';
 
   ALTER TABLE contratos ADD COLUMN IF NOT EXISTS puestos_id_puesto INTEGER REFERENCES puestos(id_puesto);
+
+  -- Condiciones económicas del contrato mensual. Se guardan en contratos y no
+  -- en vehiculos porque son propias de cada periodo de cobro.
+  ALTER TABLE contratos ADD COLUMN IF NOT EXISTS precio   NUMERIC(12,2);
+  ALTER TABLE contratos ADD COLUMN IF NOT EXISTS pagado   BOOLEAN NOT NULL DEFAULT FALSE;
+  ALTER TABLE contratos ADD COLUMN IF NOT EXISTS dia_pago SMALLINT;
+
+  -- Mes en curso en que se marcó pagado el contrato. Al cambiar el mes,
+  -- el bool pagado deja de contar: la lectura se hace contra esta columna.
+  ALTER TABLE contratos ADD COLUMN IF NOT EXISTS pagado_mes VARCHAR(7);
+
+  UPDATE contratos
+  SET pagado_mes = TO_CHAR(NOW(), 'YYYY-MM')
+  WHERE pagado = TRUE AND pagado_mes IS NULL;
+
+  -- Estado de pago del ticket diario. Vive en el ticket abierto (no en
+  -- vehiculos) para que un mismo vehículo diario pueda marcarse pagado sin
+  -- afectar su historial. El mapa lee esta columna para el tooltip.
+  ALTER TABLE tickets ADD COLUMN IF NOT EXISTS pagado BOOLEAN NOT NULL DEFAULT FALSE;
+
+  -- Tarifa por minuto: la columna convive con valor_hora/valor_dia/valor_mes.
+  -- Cada modalidad cotiza solo su propia columna; el cálculo del ticket
+  -- combina minuto + hora + día para prorratear estadías cortas.
+  ALTER TABLE tarifa ADD COLUMN IF NOT EXISTS valor_minuto NUMERIC(12,2);
 
   -- Columnas huérfanas del diseño inicial. Ninguna participa en la lógica de
   -- negocio y ensuciaban cada INSERT: se eliminan de forma idempotente.
@@ -70,6 +102,10 @@ const MIGRACION_SQL = `
   INSERT INTO tarifa(tipo_vehiculo, valor_hora)
   SELECT 'por_hora', 3000
   WHERE NOT EXISTS (SELECT 1 FROM tarifa WHERE tipo_vehiculo='por_hora');
+
+  INSERT INTO tarifa(tipo_vehiculo, valor_minuto)
+  SELECT 'por_minuto', 100
+  WHERE NOT EXISTS (SELECT 1 FROM tarifa WHERE tipo_vehiculo='por_minuto');
 
   -- Catálogo de tipos de vehículo. Se crea aquí porque la tabla existía sólo
   -- cuando se levantaba la BD manualmente; en un reinicio limpio faltaba y las
@@ -159,6 +195,65 @@ const MIGRACION_SQL = `
     ON vehiculos(estados_id_estado, fecha_eliminado)
     WHERE fecha_eliminado IS NULL;
 
+  -- Índices de actividad reciente. Filtran por fecha_ingreso/fecha_inicio >=
+  -- inicio de semana (P10) sin escanear el histórico completo de tickets y
+  -- contratos.
+  CREATE INDEX IF NOT EXISTS idx_tickets_fecha_ingreso ON tickets(fecha_ingreso);
+  CREATE INDEX IF NOT EXISTS idx_contratos_fecha_inicio ON contratos(fecha_inicio);
+
+  -- Índices parciales por patrón de acceso real:
+  --   - idx_tickets_abiertos: el SELECT "ticket abierto por placa" que corre
+  --     en crearTicket, cerrarTicket y actualizarVehiculo.
+  --   - idx_tickets_doc_historial: historial del cliente (tickets cerrados).
+  --   - idx_contratos_placa_inicio: último contrato por placa (LATERAL de
+  --     listarVehiculos y de perfil).
+  CREATE INDEX IF NOT EXISTS idx_tickets_abiertos
+    ON tickets (vehiculos_placa, fecha_ingreso DESC)
+    WHERE fecha_salida IS NULL AND fecha_eliminado IS NULL;
+
+  CREATE INDEX IF NOT EXISTS idx_tickets_doc_historial
+    ON tickets (usuarios_documento, fecha_ingreso DESC)
+    WHERE fecha_salida IS NOT NULL AND fecha_eliminado IS NULL;
+
+  CREATE INDEX IF NOT EXISTS idx_contratos_placa_inicio
+    ON contratos (vehiculos_placa, fecha_inicio DESC)
+    WHERE fecha_eliminado IS NULL;
+
+  -- Alerta de pago del contrato: el chequeo por login filtra por dia_pago y
+  -- por el mes pagado en curso. Sin índice, escanea contratos completo.
+  CREATE INDEX IF NOT EXISTS idx_contratos_dia_pago_activos
+    ON contratos (dia_pago, pagado_mes, fecha_fin)
+    WHERE fecha_eliminado IS NULL;
+
+  -- Índices trigram para los listados con ILIKE '%texto%': el btree no sirve
+  -- para búsqueda mid-string. Se aísla en un DO block porque si el rol de
+  -- conexión no puede habilitar pg_trgm (p.ej. Neon sin el flag desde la
+  -- consola), un CREATE EXTENSION suelto abortaría todo MIGRACION_SQL en cada
+  -- cold start. Con el guard, los trigram quedan omitidos y la app sigue.
+  DO $trgm$
+  DECLARE
+    tiene_trgm boolean := false;
+  BEGIN
+    BEGIN
+      CREATE EXTENSION IF NOT EXISTS pg_trgm;
+      tiene_trgm := true;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'pg_trgm no disponible (%), índices trigram omitidos', SQLERRM;
+    END;
+
+    IF tiene_trgm THEN
+      EXECUTE 'CREATE INDEX IF NOT EXISTS idx_usuarios_nombre_trgm
+                 ON usuarios USING gin (nombre gin_trgm_ops)';
+      EXECUTE 'CREATE INDEX IF NOT EXISTS idx_vehiculos_placa_trgm
+                 ON vehiculos USING gin (placa gin_trgm_ops)';
+      EXECUTE 'CREATE INDEX IF NOT EXISTS idx_logs_accion_trgm
+                 ON logs_sistema USING gin (accion gin_trgm_ops)';
+      EXECUTE 'CREATE INDEX IF NOT EXISTS idx_usuarios_documento_text_trgm
+                 ON usuarios USING gin ((documento::text) gin_trgm_ops)';
+    END IF;
+  END
+  $trgm$;
+
   -- Contador global para polling condicional. Se crea aquí (no en un script
   -- aparte) porque el cliente sondea /api/version en cada arranque; si la
   -- tabla falta, el endpoint devolvía 500 hasta que alguien corriera el SQL
@@ -188,12 +283,23 @@ const MIGRACION_SQL = `
   -- Se omite toda tabla que todavía no exista: DROP TRIGGER ... ON <tabla>
   -- resuelve el nombre de la tabla antes de comprobar el trigger, así que
   -- IF EXISTS no protege contra una tabla ausente y el bloque entero aborta.
+  --
+  -- logs_sistema queda FUERA del trigger: cada INSERT de auditoría (login,
+  -- logout, altas) bumpeaba el contador global y despertaba a todos los
+  -- clientes con polling activo. Es la tabla de mayor rotación del sistema y
+  -- ninguno de sus cambios es dato en vivo para la UI. Se dropea el trigger
+  -- en BDs donde ya existía, bajo to_regclass porque la tabla puede faltar
+  -- en un arranque limpio.
   DO $do$
   DECLARE t text;
   BEGIN
+    IF to_regclass('logs_sistema') IS NOT NULL THEN
+      EXECUTE 'DROP TRIGGER IF EXISTS tr_version_logs_sistema ON logs_sistema';
+    END IF;
+
     FOREACH t IN ARRAY ARRAY[
       'tickets','vehiculos','contratos','puestos',
-      'usuarios','tarifa','sugerencias','logs_sistema'
+      'usuarios','tarifa','sugerencias'
     ] LOOP
       IF to_regclass(t) IS NULL THEN CONTINUE; END IF;
       EXECUTE format('DROP TRIGGER IF EXISTS tr_version_%I ON %I', t, t);
@@ -210,6 +316,13 @@ const MIGRACION_SQL = `
 // Recálculo de la bandera de ocupación. Se separó para envolverlo en su propia
 // transacción: sin ella, un corte entre el FALSE global y el TRUE puntual deja
 // la tabla de puestos mintiendo (todos libres) hasta el siguiente arranque.
+// El último UPDATE alinea `pagado` en contratos creados antes de que la columna
+// fuera NOT NULL.
+//
+// El deriver de ocupación exige vehículo vigente Y activo: un mensual
+// inactivado (papelera) mantiene su contrato pero su puesto debe quedar libre,
+// igual que hace listarPuestos. Sin este filtro, el seed reocupaba el puesto
+// que la inactivación había liberado.
 const MIGRACION_PUESTOS_SQL = `
   UPDATE puestos SET estado_puesto = FALSE WHERE fecha_eliminado IS NULL;
 
@@ -217,39 +330,64 @@ const MIGRACION_PUESTOS_SQL = `
   SET estado_puesto = TRUE
   WHERE EXISTS (
     SELECT 1 FROM contratos c
+    JOIN vehiculos v ON v.placa = c.vehiculos_placa
     WHERE c.puestos_id_puesto = p.id_puesto
       AND c.fecha_eliminado IS NULL
       AND c.fecha_fin > NOW()
+      AND v.fecha_eliminado IS NULL
+      AND v.estados_id_estado = (SELECT id_estado FROM estados WHERE nombre_estado = 'activo')
   )
   OR EXISTS (
     SELECT 1 FROM tickets t
+    JOIN vehiculos v ON v.placa = t.vehiculos_placa
     WHERE t.puestos_id_puesto = p.id_puesto
       AND t.fecha_salida IS NULL
       AND t.fecha_eliminado IS NULL
+      AND v.fecha_eliminado IS NULL
+      AND v.estados_id_estado = (SELECT id_estado FROM estados WHERE nombre_estado = 'activo')
   );
+
+  UPDATE contratos SET pagado = FALSE WHERE pagado IS NULL;
 `;
 
-// Aplica el script una sola vez por proceso.
+// Aplica el script una sola vez por versión del SQL.
+// El "por versión" importa: el flag vive en globalThis y sobrevive al
+// hot-reload de Next. Si el cache fuera un booleano, editar MIGRACION_SQL en
+// dev hacía early-return y el DDL nuevo nunca llegaba a Postgres hasta matar
+// el proceso. Comparar la firma del SQL invalida el cache solo.
 async function aplicarMigraciones() {
-  if (globalSeed.__migrado) return;
+  // Firma = concatenación del DDL y los updates. Cualquier edición cambia el string.
+  const firma = MIGRACION_SQL + MIGRACION_PUESTOS_SQL;
 
+  // Si ya se aplicó exactamente este SQL en este proceso, no repite el DDL.
+  if (globalSeed.__migrado === firma) return;
+
+  // Ejecuta el bloque grande de cambios idempotentes.
   await pool.query(MIGRACION_SQL);
 
   // El recálculo toca filas de `puestos`; se aísla en una transacción para
   // que sea atómico frente a arranques concurrentes en dev (hot-reload).
+  // connect reserva una conexion concreta del pool para manejar BEGIN/COMMIT.
   const cliente = await pool.connect();
   try {
+    // Inicia transaccion.
     await cliente.query("BEGIN");
+    // Recalcula puestos libres/ocupados como una sola unidad logica.
     await cliente.query(MIGRACION_PUESTOS_SQL);
+    // Confirma cambios si no hubo error.
     await cliente.query("COMMIT");
   } catch (e) {
+    // Revierte cambios parciales si algo falla.
     await cliente.query("ROLLBACK");
+    // Propaga el error para que ensureSeed pueda liberar la promesa.
     throw e;
   } finally {
+    // Devuelve la conexion al pool aunque haya error.
     cliente.release();
   }
 
-  globalSeed.__migrado = true;
+  // Marca esta firma como aplicada en este proceso.
+  globalSeed.__migrado = firma;
 }
 
 // Inserta o actualiza un usuario base.
@@ -257,16 +395,25 @@ async function aplicarMigraciones() {
 // - Idempotente: ON CONFLICT (documento) actualiza datos pero no rehashea si ya está hasheada
 //   (evita crear un hash nuevo cada arranque).
 async function insertarUsuarioSeed(opts: {
+  // Documento unico del usuario.
   documento: number;
+  // Nombre completo.
   nombre: string;
+  // Telefono de contacto.
   telefono: string;
+  // Correo de contacto.
   correo: string;
+  // Contrasena en texto plano solo antes de hashearla.
   password: string;
+  // Cargo aplica sobre todo a empleados/gerente; cliente puede ser null.
   cargo: string | null;
+  // Rol que se buscara en la tabla roles.
   rol: string;
 }) {
+  // Convierte la contrasena a hash bcrypt con costo 10.
   const hash = await bcrypt.hash(opts.password, 10);
 
+  // Inserta o actualiza el usuario seed.
   await pool.query(
     `INSERT INTO usuarios (
        documento, estados_id_estado, roles_id_roles, nombre,
@@ -280,11 +427,13 @@ async function insertarUsuarioSeed(opts: {
        telefono = EXCLUDED.telefono,
        correo = EXCLUDED.correo,
        cargo = EXCLUDED.cargo,
+       -- Solo reemplaza contrasenas que no parezcan hash bcrypt.
        contraseña = CASE
          WHEN usuarios.contraseña NOT LIKE '$2%'
          THEN EXCLUDED.contraseña
          ELSE usuarios.contraseña
        END`,
+    // Valores parametrizados para evitar SQL injection y problemas de comillas.
     [
       opts.documento,
       opts.nombre,
@@ -301,10 +450,13 @@ async function insertarUsuarioSeed(opts: {
 // Además garantiza que ABC123 (mensual) tenga contrato activo con un puesto asignado,
 // para que las estadísticas de ocupación reflejen datos reales.
 async function insertarVehiculosDemo() {
+  // Cuenta vehiculos vigentes para saber si debe crear datos demo.
   const conteo = await pool.query(
     `SELECT COUNT(*)::int AS total FROM vehiculos WHERE fecha_eliminado IS NULL`
   );
+  // Solo si no hay vehiculos, crea dos placas de prueba.
   if (conteo.rows[0].total === 0) {
+    // Crea vehiculo mensual ABC123 para el cliente demo.
     await pool.query(
       `INSERT INTO vehiculos (placa, usuarios_documento, estados_id_estado, tarifa_id_tarifa, color)
        SELECT 'ABC123', 1234, e.id_estado, t.id_tarifa, 'Rojo'
@@ -313,6 +465,7 @@ async function insertarVehiculosDemo() {
        ON CONFLICT (placa) DO NOTHING`
     );
 
+    // Crea vehiculo diario XYZ789 para el cliente demo.
     await pool.query(
       `INSERT INTO vehiculos (placa, usuarios_documento, estados_id_estado, tarifa_id_tarifa, color)
        SELECT 'XYZ789', 1234, e.id_estado, t.id_tarifa, 'Negro'
@@ -327,13 +480,15 @@ async function insertarVehiculosDemo() {
   await pool.query(
     `INSERT INTO contratos (
        tarifa_id_tarifa, vehiculos_placa, usuarios_documento,
-       estados_id_estado, fecha_inicio, fecha_fin, puestos_id_puesto
+       estados_id_estado, fecha_inicio, fecha_fin, puestos_id_puesto,
+       precio, dia_pago, pagado
      )
      SELECT t.id_tarifa, 'ABC123', 1234, e.id_estado,
             NOW(), NOW() + INTERVAL '1 month',
             (SELECT id_puesto FROM puestos
              WHERE fecha_eliminado IS NULL
-             ORDER BY numero_puesto LIMIT 1)
+             ORDER BY numero_puesto LIMIT 1),
+            t.valor_mes, 5, FALSE
      FROM tarifa t, estados e
      WHERE t.tipo_vehiculo = 'mensual' AND e.nombre_estado = 'activo'
        AND NOT EXISTS (
@@ -355,13 +510,17 @@ async function insertarVehiculosDemo() {
 
 // Cuerpo del seed: corre exactamente una vez por instancia (ver ensureSeed).
 async function ejecutarSeed() {
+  // Primero asegura columnas, indices, catalogos y triggers.
   await aplicarMigraciones();
 
+  // Cuenta usuarios para decidir si crear todos los usuarios demo.
   const usuarios = await pool.query(
     `SELECT COUNT(*)::int AS total FROM usuarios`
   );
 
+  // Si la tabla usuarios esta vacia, se crea el paquete completo de prueba.
   if (usuarios.rows[0].total === 0) {
+    // Usuario gerente demo.
     await insertarUsuarioSeed({
       documento: 1122338718,
       nombre: "Miguel Ángel Colobón",
@@ -372,6 +531,7 @@ async function ejecutarSeed() {
       rol: "gerente",
     });
 
+    // Usuario empleado demo 1.
     await insertarUsuarioSeed({
       documento: 123,
       nombre: "Isaac Aray",
@@ -382,6 +542,7 @@ async function ejecutarSeed() {
       rol: "empleado",
     });
 
+    // Usuario empleado demo 2.
     await insertarUsuarioSeed({
       documento: 124,
       nombre: "Miguel Ángel Godoy",
@@ -392,6 +553,7 @@ async function ejecutarSeed() {
       rol: "empleado",
     });
 
+    // Usuario cliente demo.
     await insertarUsuarioSeed({
       documento: 1234,
       nombre: "Carlos Pérez",
@@ -402,6 +564,7 @@ async function ejecutarSeed() {
       rol: "cliente",
     });
 
+    // Crea vehiculos y contrato demo asociados al cliente.
     await insertarVehiculosDemo();
   } else {
     // Si ya hay usuarios, garantizar al menos un empleado activo (útil tras reseeds parciales).
@@ -413,6 +576,7 @@ async function ejecutarSeed() {
        LIMIT 1`
     );
 
+    // Si no hay empleados, crea los dos empleados demo.
     if (!empleadosExistentes.rows.length) {
       await insertarUsuarioSeed({
         documento: 123,
@@ -442,8 +606,11 @@ async function ejecutarSeed() {
        WHERE contraseña NOT LIKE '$2%'`
     );
 
+    // Recorre cada usuario con contrasena en texto plano historica.
     for (const usuario of sinHash.rows) {
+      // Genera hash bcrypt para esa contrasena.
       const hash = await bcrypt.hash(usuario.contraseña, 10);
+      // Reemplaza el texto plano por hash.
       await pool.query(
         `UPDATE usuarios SET contraseña = $1 WHERE documento = $2`,
         [hash, usuario.doc]
@@ -457,12 +624,17 @@ async function ejecutarSeed() {
 //   - Siguientes requests (incluyendo concurrentes): reciben la misma promesa.
 //   - Si el seed falla, la promesa se limpia para reintentar en el próximo request.
 export async function ensureSeed() {
+  // Si ya hay una promesa en curso, todos esperan esa misma promesa.
   if (globalSeed.__seedPromise) return globalSeed.__seedPromise;
 
+  // Ejecuta seed y guarda la promesa global.
   globalSeed.__seedPromise = ejecutarSeed().catch((err) => {
+    // Si falla, borra la promesa para permitir reintento futuro.
     globalSeed.__seedPromise = undefined;
+    // Propaga el error original.
     throw err;
   });
 
+  // Devuelve la promesa del seed.
   return globalSeed.__seedPromise;
 }

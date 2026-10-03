@@ -1,2 +1,5 @@
+# Configuración de pnpm para permitir scripts de build en paquetes específicos.
 allowBuilds:
+# Autoriza a sharp a ejecutar su build nativo cuando pnpm instala dependencias.
+# sharp suele ser usado por herramientas de imágenes y optimización.
   sharp: true
