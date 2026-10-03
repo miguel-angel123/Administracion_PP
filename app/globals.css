@@ -170,6 +170,16 @@ button {
   }
 }
 
+/* Chips del mapa: en movil el long-press nativo abre el menu de copiar/
+   seleccionar y se come el touchstart que dispara el menu contextual propio.
+   `touch-action` evita que el doble-tap haga zoom sobre el chip. */
+.chip-vehiculo {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
 /* Ticket imprimible: formato de recibo térmico simple.
    Se muestra como vista previa en el modal y, al imprimir, sustituye toda la página. */
 /* Contenedor del recibo imprimible. */

@@ -126,16 +126,22 @@ export async function POST(req: Request) {
     // Crea la respuesta exitosa que se enviara al frontend.
     const res = NextResponse.json({ ok: true, user });
 
+    // `Secure` solo con HTTPS real. Sobre HTTP plano (LAN sin TLS) el navegador
+    // descarta la cookie en silencio: el POST devuelve 200 pero /api/auth/me
+    // llega sin cookie y responde 401. localhost es la única excepción: los
+    // navegadores lo tratan como contexto seguro y sí guardan cookies Secure.
+    const proto = (req.headers.get("x-forwarded-proto") || "").split(",")[0].trim();
+    const esHttps = proto === "https" || new URL(req.url).protocol === "https:";
+
     // Cookie httpOnly: el navegador no puede leerla desde JS (mitiga XSS).
     // sameSite strict evita que el navegador adjunte el token en cualquier
     // request cross-site (login-CSRF, hotlinking). Debe coincidir con logout
     // para que el borrado de cookie funcione en todos los navegadores.
-    // secure solo en producción (HTTPS).
     res.cookies.set("token", token, {
       // Impide que JavaScript del navegador lea el JWT.
       httpOnly: true,
-      // En produccion exige HTTPS.
-      secure: process.env.NODE_ENV === "production",
+      // Sólo se marca Secure sobre HTTPS real.
+      secure: esHttps,
       // No se envía en navegaciones/requests cross-site.
       sameSite: "strict",
       // Ocho horas en segundos.

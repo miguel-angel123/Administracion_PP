@@ -72,6 +72,10 @@ const CLAVE_FIRMA_LEGACY = "firmaGerente";
 const ANCHO_FIRMA = 600;
 const ALTO_FIRMA = 240;
 
+// Milisegundos para que un touch sostenido cuente como long-press. 500 es el
+// estándar Android: con menos se dispara por accidente al hacer scroll.
+const MS_LONG_PRESS = 500;
+
 type CampoContrato = {
   clave: keyof DatosContratoPDF;
   etiqueta: string;
@@ -151,8 +155,11 @@ export default function VehiculosPage() {
   const [form, setForm] = useState<Partial<VehiculoDB>>({});
   const [papeleraAbierta, setPapeleraAbierta] = useState(false);
   const [hover, setHover] = useState<string | null>(null);
+  // Mensajes de validación mostrados dentro del modal, sin popup externo.
+  // En móvil la alerta centrada tapaba el campo que había que corregir.
+  const [erroresForm, setErroresForm] = useState<string[]>([]);
 
-  // Context menu sobre el chip: alterna el estado de pago del vehículo.
+  // Context menu sobre el chip: alterna el estado de pago y entra a "mover".
   const [menu, setMenu] = useState<{
     placa: string;
     x: number;
@@ -173,6 +180,19 @@ export default function VehiculosPage() {
   const [colocando, setColocando] = useState<VehiculoDB | null>(null);
   const [mouse, setMouse] = useState<{ x: number; y: number } | null>(null);
   const [puestoHover, setPuestoHover] = useState<string | null>(null);
+
+  // Vehículo activo en modo "mover": se abre desde el menú contextual y el
+  // próximo clic sobre un puesto libre lo reasigna. Alternativa táctil al
+  // drag&drop, que en móvil compite con el scroll.
+  const [moviendo, setMoviendo] = useState<{ placa: string; pagado: boolean } | null>(null);
+
+  // Detección de puntero grueso (dedo). Decide si el chip es `draggable` o si
+  // se activa el long-press que abre el menú.
+  const [esTactil, setEsTactil] = useState(false);
+  // Timer del long-press activo, si lo hay.
+  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bandera que suprime el `click` sintetizado tras un long-press consumado.
+  const longPressConsumido = useRef(false);
 
   // Escala visual del mapa interactivo. Permite encajar parqueaderos con muchos
   // puestos dentro del viewport sin scroll vertical.
@@ -214,6 +234,10 @@ export default function VehiculosPage() {
       const data = await res.json();
       if (Array.isArray(data)) setTiposVeh(data);
     })();
+
+    // Puntero grueso (dedo) vs fino (mouse/trackpad). `pointer: coarse` cubre
+    // tablets y móviles sin depender de sniffing de user-agent.
+    setEsTactil(window.matchMedia("(pointer: coarse)").matches);
 
     // Recupera la firma guardada. Si solo existe la clave antigua, se mueve a
     // la nueva y se borra: así queda una única fuente a partir de aquí.
@@ -260,6 +284,20 @@ export default function VehiculosPage() {
     };
   }, [colocando]);
 
+  // Modo "mover": ESC cancela; no hay chip flotante porque el vehículo ya
+  // está pintado en su puesto actual.
+  useEffect(() => {
+    if (!moviendo) return;
+    const cancelar = (e: KeyboardEvent) => { if (e.key === "Escape") setMoviendo(null); };
+    window.addEventListener("keydown", cancelar);
+    return () => window.removeEventListener("keydown", cancelar);
+  }, [moviendo]);
+
+  // Al desmontar, no dejar un timeout colgando.
+  useEffect(() => () => {
+    if (longPressRef.current) clearTimeout(longPressRef.current);
+  }, []);
+
   const puestosLibres = puestos.filter(p =>
     !p.estado_puesto || String(p.numero_puesto) === String(form.puesto)
   );
@@ -270,12 +308,14 @@ export default function VehiculosPage() {
       tipo: "mensual", clase_vehiculo: "", puestoSeleccionado: "",
       precio: null, dia_pago: null, pagado: false,
     });
+    setErroresForm([]);
     setModal("create");
   };
 
   const openEdit = (v: VehiculoDB) => {
     setForm({ ...v, puestoSeleccionado: "" });
     setSelected(v);
+    setErroresForm([]);
     setModal("edit");
   };
 
@@ -284,41 +324,36 @@ export default function VehiculosPage() {
     setModal("view");
   };
 
-  const save = async () => {
-    if (modal === "create") {
-      if (!esPlacaValida(form.placa || "")) {
-        alertaAdvertencia("La placa debe tener 3 letras y 3 números (ej. ABC123)");
-        return;
-      }
-      if (!esDocumentoValido(form.doc || "")) {
-        alertaAdvertencia("El documento del propietario debe tener entre 6 y 12 dígitos");
-        return;
-      }
-      if (form.telefono && !esTelefonoValido(form.telefono)) {
-        alertaAdvertencia("El teléfono debe tener 10 dígitos");
-        return;
-      }
-      if (!sinAngular(form.nombre || "") || !sinAngular(form.color || "")) {
-        alertaAdvertencia("Nombre o color contienen caracteres no permitidos (< >)");
-        return;
-      }
-      if (!form.puestoSeleccionado) {
-        alertaAdvertencia("Debe asignar un puesto libre al contrato");
-        return;
-      }
-      if (form.precio != null && form.precio < 0) {
-        alertaAdvertencia("El precio no puede ser negativo");
-        return;
-      }
-      if (form.dia_pago != null && (form.dia_pago < 1 || form.dia_pago > 31)) {
-        alertaAdvertencia("El día de pago debe estar entre 1 y 31");
-        return;
-      }
-      if (!form.clase_vehiculo) {
-        alertaAdvertencia("Seleccione la clase de vehículo");
-        return;
-      }
+  const cerrarModalForm = () => {
+    setModal(null);
+    setErroresForm([]);
+  };
 
+  const save = async () => {
+    // Las validaciones se acumulan para que el operador vea TODO lo que falta
+    // de una sola vez, dentro del modal.
+    const errs: string[] = [];
+
+    if (modal === "create") {
+      if (!esPlacaValida(form.placa || "")) errs.push("La placa debe tener 3 letras y 3 números (ej. ABC123)");
+      if (!esDocumentoValido(form.doc || "")) errs.push("El documento del propietario debe tener entre 6 y 12 dígitos");
+      if (form.telefono && !esTelefonoValido(form.telefono)) errs.push("El teléfono debe tener 10 dígitos");
+      if (!sinAngular(form.nombre || "") || !sinAngular(form.color || "")) errs.push("Nombre o color contienen caracteres no permitidos (< >)");
+      if (!form.puestoSeleccionado) errs.push("Debe asignar un puesto libre al contrato");
+      if (form.precio != null && form.precio < 0) errs.push("El precio no puede ser negativo");
+      if (form.dia_pago != null && (form.dia_pago < 1 || form.dia_pago > 31)) errs.push("El día de pago debe estar entre 1 y 31");
+      if (!form.clase_vehiculo) errs.push("Seleccione la clase de vehículo");
+    } else {
+      if (!sinAngular(form.nombre || "")) errs.push("El nombre contiene caracteres no permitidos (< >)");
+    }
+
+    if (errs.length) {
+      setErroresForm(errs);
+      return;
+    }
+    setErroresForm([]);
+
+    if (modal === "create") {
       const res = await fetchSeguro("/api/vehiculos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -342,11 +377,6 @@ export default function VehiculosPage() {
       alertaExito("Vehículo registrado y asignado al puesto.");
       await loadInactivos();
     } else {
-      if (!sinAngular(form.nombre || "")) {
-        alertaAdvertencia("El nombre contiene caracteres no permitidos (< >)");
-        return;
-      }
-
       const putBody: Record<string, unknown> = {
         color: form.color || "",
       };
@@ -375,6 +405,7 @@ export default function VehiculosPage() {
       await loadInactivos();
     }
     setModal(null);
+    setErroresForm([]);
     await loadPuestos();
   };
 
@@ -438,6 +469,25 @@ export default function VehiculosPage() {
     await loadInactivos();
   };
 
+  // Reasignación táctil: mismo PATCH de drag&drop, pero sin arrastrar.
+  const moverAPuesto = async (puesto: PuestoDB) => {
+    if (!moviendo || puesto.estado_puesto) return;
+
+    const res = await fetchSeguro(`/api/vehiculos/${moviendo.placa}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ puestosIdPuesto: Number(puesto.id) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alertaError(data.error || "No se pudo mover el vehículo");
+      return;
+    }
+    alertaExito(`Vehículo ${moviendo.placa} movido a P-${puesto.numero_puesto}.`);
+    setMoviendo(null);
+    await loadPuestos();
+  };
+
   // Alterna el estado de pago desde el menú contextual del mapa.
   const marcarPagado = async (placa: string, pagado: boolean) => {
     setMenu(null);
@@ -453,6 +503,33 @@ export default function VehiculosPage() {
     }
     alertaExito(pagado ? "Marcado como pagado." : "Marcado como pendiente.");
     await loadPuestos();
+  };
+
+  // --- LONG-PRESS DEL CHIP (solo puntero táctil) ---
+  // Arma el timer; cualquier movimiento o levantamiento del dedo antes de
+  // MS_LONG_PRESS lo cancela. Al vencer, se abre el menú contextual del chip
+  // en el punto tocado y se marca la bandera para suprimir el `click` que el
+  // navegador emite al soltar.
+  const iniciarLongPress = (e: React.TouchEvent, v: VehiculoPuesto) => {
+    if (!canEdit) return;
+    const t = e.touches[0];
+    const x = t.clientX;
+    const y = t.clientY;
+
+    longPressConsumido.current = false;
+    if (longPressRef.current) clearTimeout(longPressRef.current);
+    longPressRef.current = setTimeout(() => {
+      longPressRef.current = null;
+      longPressConsumido.current = true;
+      setMenu({ placa: v.placa, x, y, pagado: !!v.pagado });
+    }, MS_LONG_PRESS);
+  };
+
+  const cancelarLongPress = () => {
+    if (longPressRef.current) {
+      clearTimeout(longPressRef.current);
+      longPressRef.current = null;
+    }
   };
 
   // --- LÓGICA DE DRAG AND DROP (MAPA INTERACTIVO) ---
@@ -657,9 +734,23 @@ export default function VehiculosPage() {
           </div>
         )}
 
+        {moviendo && (
+          <div style={{
+            marginBottom: 16, padding: "10px 14px", borderRadius: 8,
+            background: "#dbeafe", border: "1px solid #3b82f6",
+            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
+          }}>
+            <span style={{ fontSize: 13, color: "#1e3a8a" }}>
+              Moviendo <b>{moviendo.placa}</b>. Toca un puesto libre para reasignarlo, o pulsa ESC para cancelar.
+            </span>
+            <Boton small variant="ghost" onClick={() => setMoviendo(null)}>Cancelar</Boton>
+          </div>
+        )}
+
         <p style={{ color: C.sub, fontSize: 14, marginBottom: 12 }}>
-          Arrastra los vehículos para moverlos de puesto. Haz clic en un vehículo
-          para ver sus detalles o enviarlo a la papelera.
+          {esTactil
+            ? "Mantén pulsado un vehículo para moverlo de puesto o marcar su pago. Toca el chip para ver sus detalles."
+            : "Arrastra los vehículos para moverlos de puesto. Haz clic en un vehículo para ver sus detalles o clic derecho para más acciones."}
         </p>
 
         <div style={{ position: "relative" }}>
@@ -744,20 +835,26 @@ export default function VehiculosPage() {
                 {puestos.map(p => {
                   const v = p.vehiculoActual;
                   const ocupado = p.estado_puesto && !!v;
-                  const resaltado = !!colocando && !ocupado && puestoHover === p.id;
+                  // Un único "resaltable" cubre los dos modos táctiles: colocar
+                  // (reactivar) y mover (reasignar). El puesto debe estar libre.
+                  const enModoDestino = (!!colocando || !!moviendo) && !ocupado;
+                  const resaltado = enModoDestino && puestoHover === p.id;
 
                   return (
                     <div
                       key={p.id}
                       onDragOver={handleDragOver}
                       onDrop={(e) => handleDrop(e, p.id, ocupado)}
-                      onClick={() => { if (colocando && !ocupado) colocarEnPuesto(p); }}
-                      onMouseEnter={() => { if (colocando && !ocupado) setPuestoHover(p.id); }}
+                      onClick={() => {
+                        if (colocando && !ocupado) colocarEnPuesto(p);
+                        else if (moviendo && !ocupado) moverAPuesto(p);
+                      }}
+                      onMouseEnter={() => { if (enModoDestino) setPuestoHover(p.id); }}
                       onMouseLeave={() => setPuestoHover(null)}
                       style={{
                         border: `2px dashed ${resaltado ? "#4ade80" : ocupado ? "transparent" : C.border}`,
                         background: resaltado ? "#dcfce3" : ocupado ? `${C.accent}0F` : "transparent",
-                        cursor: colocando ? (ocupado ? "not-allowed" : "crosshair") : undefined,
+                        cursor: enModoDestino ? "crosshair" : undefined,
                         borderRadius: 8,
                         height: 100,
                         display: "flex",
@@ -790,8 +887,17 @@ export default function VehiculosPage() {
 
                       {ocupado && v && (
                         <div
-                          draggable={canEdit}
+                          // Clase global que apaga el menú de copiar/seleccionar de
+                          // iOS sobre chips; sin ella el long-press nativo se come
+                          // el touchstart propio.
+                          className="chip-vehiculo"
+                          // `draggable` sólo en puntero fino. En táctil el gesto lo
+                          // maneja el long-press de abajo.
+                          draggable={canEdit && !esTactil}
                           onDragStart={(e) => handleDragStart(e, v.placa)}
+                          onTouchStart={(e) => iniciarLongPress(e, v)}
+                          onTouchEnd={cancelarLongPress}
+                          onTouchMove={cancelarLongPress}
                           onMouseEnter={() => setHover(v.placa)}
                           onMouseLeave={() => setHover(null)}
                           onContextMenu={e => {
@@ -799,7 +905,14 @@ export default function VehiculosPage() {
                             if (!canEdit) return;
                             setMenu({ placa: v.placa, x: e.clientX, y: e.clientY, pagado: !!v.pagado });
                           }}
-                          onClick={() =>
+                          onClick={() => {
+                            // Un long-press que ya abrió el menú no debe además
+                            // abrir el detalle al levantar el dedo.
+                            if (longPressConsumido.current) {
+                              longPressConsumido.current = false;
+                              return;
+                            }
+                            if (colocando || moviendo) return;
                             openView({
                               placa: v.placa,
                               nombre: v.nombre,
@@ -814,12 +927,13 @@ export default function VehiculosPage() {
                               precio: v.precio,
                               dia_pago: v.dia_pago,
                               pagado: v.pagado,
-                            })
-                          }
+                            });
+                          }}
                           style={{
                             marginTop: 6,
                             display: "flex", flexDirection: "column", alignItems: "center", gap: 1,
-                            cursor: canEdit ? "grab" : "pointer", userSelect: "none",
+                            cursor: canEdit ? (esTactil ? "pointer" : "grab") : "pointer",
+                            userSelect: "none",
                           }}
                         >
                           <span style={{ fontSize: 20, lineHeight: 1 }}>{v.tipo_icono || "🚗"}</span>
@@ -829,7 +943,7 @@ export default function VehiculosPage() {
                         </div>
                       )}
 
-                      {hover === v?.placa && v && (
+                      {!esTactil && hover === v?.placa && v && (
                         <div
                           style={{
                             position: "absolute", top: "100%", left: 0, zIndex: 10,
@@ -862,7 +976,8 @@ export default function VehiculosPage() {
         </div>
       </Tarjeta>
 
-      {/* CONTEXT MENU: alternar pago del vehículo */}
+      {/* CONTEXT MENU: pago + mover. Columna porque en móvil es el patrón
+          operativo (pulgar vertical) y el ancho ya estaba reservado. */}
       {menu && (
         <div
           style={{
@@ -875,8 +990,13 @@ export default function VehiculosPage() {
             borderRadius: 8,
             padding: 6,
             boxShadow: "0 8px 24px rgba(0,0,0,.5)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+            minWidth: 170,
           }}
           onClick={e => e.stopPropagation()}
+          onTouchStart={e => e.stopPropagation()}
         >
           <Boton
             small
@@ -885,12 +1005,22 @@ export default function VehiculosPage() {
           >
             {menu.pagado ? "Marcar pendiente" : "Marcar pagado"}
           </Boton>
+          <Boton
+            small
+            variant="outline"
+            onClick={() => {
+              setMoviendo({ placa: menu.placa, pagado: menu.pagado });
+              setMenu(null);
+            }}
+          >
+            Mover de puesto
+          </Boton>
         </div>
       )}
 
       {/* MODAL CREAR / EDITAR */}
       {(modal === "create" || modal === "edit") && (
-        <Modal title={modal === "create" ? "Registrar Vehículo" : "Editar Vehículo"} onClose={() => setModal(null)}>
+        <Modal title={modal === "create" ? "Registrar Vehículo" : "Editar Vehículo"} onClose={cerrarModalForm}>
           <FilaFormulario label="Placa">
             <input
               value={form.placa || ""}
@@ -993,9 +1123,30 @@ export default function VehiculosPage() {
             </FilaFormulario>
           )}
 
+          {/* Validaciones inline: muestran todas las faltas en el mismo modal,
+              sin que un popup central tape el campo a corregir. */}
+          {erroresForm.length > 0 && (
+            <div
+              style={{
+                background: `${C.red}1A`,
+                border: `1px solid ${C.red}66`,
+                borderRadius: 8,
+                padding: "8px 10px",
+                marginTop: 10,
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+              }}
+            >
+              {erroresForm.map((msg, i) => (
+                <p key={i} style={{ color: C.red, fontSize: 12, lineHeight: 1.4 }}>• {msg}</p>
+              ))}
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
             <Boton onClick={save} data-nav-submit style={{ flex: 1 }}>Guardar</Boton>
-            <Boton variant="ghost" onClick={() => setModal(null)} style={{ flex: 1 }}>Cancelar</Boton>
+            <Boton variant="ghost" onClick={cerrarModalForm} style={{ flex: 1 }}>Cancelar</Boton>
           </div>
         </Modal>
       )}
@@ -1186,6 +1337,7 @@ export default function VehiculosPage() {
                         clic y el estado viaja en el mismo request. */}
                     <Boton small variant="outline" onClick={() => {
                       setPapeleraAbierta(false);
+                      setMoviendo(null);
                       setColocando(v);
                     }}>
                       Reactivar

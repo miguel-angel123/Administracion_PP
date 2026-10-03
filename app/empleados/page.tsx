@@ -36,6 +36,9 @@ export default function EmpleadosPage() {
   const [empleados, setEmpleados] = useState<EmpleadoDB[]>([]);
   const [modal, setModal] = useState<string | null>(null);
   const [form, setForm] = useState<Partial<EmpleadoDB>>({});
+  // Validaciones del modal, mostradas dentro del propio formulario. En móvil
+  // la alerta central tapa los inputs y obliga a cerrarla para corregir.
+  const [erroresForm, setErroresForm] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [orden, setOrden] = useState<OrdenCol>("nombre");
   const [dir, setDir] = useState<"asc" | "desc">("asc");
@@ -68,28 +71,33 @@ export default function EmpleadosPage() {
 
   const openCreate = () => {
     setForm({ doc: "", nombre: "", cargo: "Vigilante", telefono: "", correo: "", estado: "trabajando" });
+    setErroresForm([]);
     setModal("create");
   };
 
-  const openEdit = (e: EmpleadoDB) => { setForm({ ...e }); setModal("edit"); };
+  const openEdit = (e: EmpleadoDB) => {
+    setForm({ ...e });
+    setErroresForm([]);
+    setModal("edit");
+  };
+
+  const cerrarModal = () => {
+    setModal(null);
+    setErroresForm([]);
+  };
 
   const save = async () => {
-    if (!esDocumentoValido(form.doc || "")) {
-      alertaAdvertencia("El documento debe tener entre 6 y 12 dígitos");
+    const errs: string[] = [];
+    if (!esDocumentoValido(form.doc || "")) errs.push("El documento debe tener entre 6 y 12 dígitos");
+    if (!sinAngular(form.nombre || "")) errs.push("El nombre contiene caracteres no permitidos");
+    if (form.telefono && !esTelefonoValido(form.telefono)) errs.push("El teléfono debe tener 10 dígitos");
+    if (form.correo && !esCorreoValido(form.correo)) errs.push("Correo electrónico inválido");
+
+    if (errs.length) {
+      setErroresForm(errs);
       return;
     }
-    if (!sinAngular(form.nombre || "")) {
-      alertaAdvertencia("El nombre contiene caracteres no permitidos");
-      return;
-    }
-    if (form.telefono && !esTelefonoValido(form.telefono)) {
-      alertaAdvertencia("El teléfono debe tener 10 dígitos");
-      return;
-    }
-    if (form.correo && !esCorreoValido(form.correo)) {
-      alertaAdvertencia("Correo electrónico inválido");
-      return;
-    }
+    setErroresForm([]);
 
     const esCrear = modal === "create";
 
@@ -118,6 +126,7 @@ export default function EmpleadosPage() {
     }
 
     setModal(null);
+    setErroresForm([]);
     await load();
     alertaExito(esCrear ? "Empleado creado." : "Empleado actualizado.");
   };
@@ -224,7 +233,7 @@ export default function EmpleadosPage() {
       </div>
 
       {(modal === "create" || modal === "edit") && (
-        <Modal title={modal === "create" ? "Crear Empleado" : "Editar Empleado"} onClose={() => setModal(null)}>
+        <Modal title={modal === "create" ? "Crear Empleado" : "Editar Empleado"} onClose={cerrarModal}>
           <FilaFormulario label="Documento"><input value={form.doc || ""} onChange={e => setForm({ ...form, doc: e.target.value })} maxLength={12} /></FilaFormulario>
           <FilaFormulario label="Nombre"><input value={form.nombre || ""} onChange={e => setForm({ ...form, nombre: e.target.value })} /></FilaFormulario>
           <FilaFormulario label="Cargo">
@@ -239,9 +248,31 @@ export default function EmpleadosPage() {
               <option value="trabajando">Trabajando</option><option value="descansando">Descansando</option><option value="inactivo">Inactivo</option>
             </select>
           </FilaFormulario>
+
+          {/* Errores inline: mismo formato en los tres módulos para que el
+              patrón sea reconocible sin mirar el archivo. */}
+          {erroresForm.length > 0 && (
+            <div
+              style={{
+                background: `${C.red}1A`,
+                border: `1px solid ${C.red}66`,
+                borderRadius: 8,
+                padding: "8px 10px",
+                marginTop: 10,
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+              }}
+            >
+              {erroresForm.map((msg, i) => (
+                <p key={i} style={{ color: C.red, fontSize: 12, lineHeight: 1.4 }}>• {msg}</p>
+              ))}
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
             <Boton onClick={save} data-nav-submit style={{ flex: 1 }}>Guardar</Boton>
-            <Boton variant="ghost" onClick={() => setModal(null)} style={{ flex: 1 }}>Cancelar</Boton>
+            <Boton variant="ghost" onClick={cerrarModal} style={{ flex: 1 }}>Cancelar</Boton>
           </div>
         </Modal>
       )}

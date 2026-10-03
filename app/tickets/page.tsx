@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { C } from "@/lib/tema";
 import { Boton, Tarjeta, Etiqueta, Modal, FilaFormulario } from "@/lib/componentes";
 import { alertaError, alertaExito, alertaAdvertencia, confirmar } from "@/lib/alerta";
@@ -109,6 +109,15 @@ export default function TicketsPage() {
     telefono: string;
     tipo: string;
   } | null>(null);
+  // Errores inline: en móvil el popup central de SweetAlert tapa los campos
+  // que hay que corregir. Uno por modal, sin tocar los formularios externos.
+  const [erroresForm, setErroresForm] = useState<string[]>([]);
+  const [erroresEditar, setErroresEditar] = useState<string[]>([]);
+
+  // Última placa consultada. El fetch de autocompletado es asíncrono y sin
+  // este guard una respuesta vieja (placa A) llegaba después de la nueva
+  // (placa B) y pisaba el formulario con datos del vehículo equivocado.
+  const ultimaPlacaConsultada = useRef("");
 
   const searchDebounced = useDebounce(search, 300);
 
@@ -151,66 +160,82 @@ export default function TicketsPage() {
 
   const cambiarBusqueda = (v: string) => { setSearch(v); setPagina(1); };
 
+  const abrirModalCrear = () => {
+    setForm(FORM_INICIAL);
+    setInfoVehiculo(null);
+    setErroresForm([]);
+    // Sin esto, un fetch pendiente del intento anterior puede completar y
+    // reescribir el formulario recién abierto.
+    ultimaPlacaConsultada.current = "";
+    setModal(true);
+  };
+
+  const cerrarModalCrear = () => {
+    setModal(false);
+    setErroresForm([]);
+  };
+
   const onPlacaChange = async (valor: string) => {
     const placa = valor.toUpperCase();
     setForm(f => ({ ...f, placa }));
 
+    // Menos de 6 caracteres = placa incompleta: no hay a quién consultar.
+    // Al limpiar el input también se invalida la última consulta en vuelo.
     if (placa.length < 6) {
+      ultimaPlacaConsultada.current = "";
       setInfoVehiculo(null);
       return;
     }
 
-    const res = await fetch(`/api/vehiculos/${placa}`);
-    if (!res.ok) {
-      setInfoVehiculo(null);
-      return;
-    }
-    const data = await leerJson<InfoVehiculo>(res);
-    setInfoVehiculo(data);
+    ultimaPlacaConsultada.current = placa;
 
-    if (data.existe && data.vehiculo) {
-      const v = data.vehiculo;
-      setForm(f => ({
-        ...f,
-        doc: String(v.documento),
-        nombre: v.nombre || "",
-        telefono: v.telefono || "",
-        tipo: v.tipo_vehiculo_id ? String(v.tipo_vehiculo_id) : "",
-      }));
-    } else {
-      setForm(f => ({ ...f, doc: "", nombre: "", telefono: "", tipo: "" }));
+    try {
+      const res = await fetch(`/api/vehiculos/${placa}`);
+      // Si mientras viajaba la petición el operador cambió la placa, esta
+      // respuesta quedó obsoleta: se descarta sin tocar el formulario.
+      if (ultimaPlacaConsultada.current !== placa) return;
+      if (!res.ok) {
+        setInfoVehiculo(null);
+        return;
+      }
+      const data = await leerJson<InfoVehiculo>(res);
+      if (ultimaPlacaConsultada.current !== placa) return;
+      setInfoVehiculo(data);
+
+      if (data.existe && data.vehiculo) {
+        const v = data.vehiculo;
+        setForm(f => ({
+          ...f,
+          doc: String(v.documento),
+          nombre: v.nombre || "",
+          telefono: v.telefono || "",
+          tipo: v.tipo_vehiculo_id ? String(v.tipo_vehiculo_id) : "",
+        }));
+      } else {
+        setForm(f => ({ ...f, doc: "", nombre: "", telefono: "", tipo: "" }));
+      }
+    } catch {
+      // Red caída: dejar el formulario en estado neutro solo si esta placa
+      // sigue siendo la última consultada.
+      if (ultimaPlacaConsultada.current === placa) setInfoVehiculo(null);
     }
   };
 
   const crear = async () => {
-    if (!esPlacaValida(form.placa)) {
-      alertaAdvertencia("La placa debe tener 3 letras y 3 números (ej. ABC123)");
+    const errs: string[] = [];
+    if (!esPlacaValida(form.placa)) errs.push("La placa debe tener 3 letras y 3 números (ej. ABC123)");
+    if (!form.puesto) errs.push("Seleccione un puesto");
+    if (!infoVehiculo?.existe && !form.tipo) errs.push("Seleccione el tipo de vehículo");
+    if (form.doc && !esDocumentoValido(form.doc)) errs.push("El documento debe tener entre 6 y 12 dígitos");
+    if (form.telefono && !esTelefonoValido(form.telefono)) errs.push("El teléfono debe tener 10 dígitos");
+    if (!sinAngular(form.nombre)) errs.push("El nombre contiene caracteres no permitidos");
+    if (!sinAngular(form.doc) || !sinAngular(form.telefono)) errs.push("Caracteres no permitidos en el formulario");
+
+    if (errs.length) {
+      setErroresForm(errs);
       return;
     }
-    if (!form.puesto) {
-      alertaAdvertencia("Seleccione un puesto");
-      return;
-    }
-    if (!infoVehiculo?.existe && !form.tipo) {
-      alertaAdvertencia("Seleccione el tipo de vehículo");
-      return;
-    }
-    if (form.doc && !esDocumentoValido(form.doc)) {
-      alertaAdvertencia("El documento debe tener entre 6 y 12 dígitos");
-      return;
-    }
-    if (form.telefono && !esTelefonoValido(form.telefono)) {
-      alertaAdvertencia("El teléfono debe tener 10 dígitos");
-      return;
-    }
-    if (!sinAngular(form.nombre)) {
-      alertaAdvertencia("El nombre contiene caracteres no permitidos");
-      return;
-    }
-    if (!sinAngular(form.doc) || !sinAngular(form.telefono)) {
-      alertaAdvertencia("Caracteres no permitidos en el formulario");
-      return;
-    }
+    setErroresForm([]);
 
     const res = await fetchSeguro("/api/tickets", {
       method: "POST",
@@ -239,6 +264,8 @@ export default function TicketsPage() {
     setModal(false);
     setForm(FORM_INICIAL);
     setInfoVehiculo(null);
+    setErroresForm([]);
+    ultimaPlacaConsultada.current = "";
     await loadTickets();
     await loadPuestos();
   };
@@ -284,6 +311,7 @@ export default function TicketsPage() {
     const res = await fetch(`/api/tickets/${id}`);
     if (!res.ok) { alertaError("No se pudo cargar el ticket"); return; }
     const t = await leerJson<TicketImpresion>(res);
+    setErroresEditar([]);
     setEditarTicket({
       id,
       nombre: t.propietario ?? "",
@@ -295,14 +323,15 @@ export default function TicketsPage() {
 
   const guardarEditarTicket = async () => {
     if (!editarTicket) return;
-    if (editarTicket.telefono && !esTelefonoValido(editarTicket.telefono)) {
-      alertaAdvertencia("El teléfono debe tener 10 dígitos");
+
+    const errs: string[] = [];
+    if (editarTicket.telefono && !esTelefonoValido(editarTicket.telefono)) errs.push("El teléfono debe tener 10 dígitos");
+    if (!sinAngular(editarTicket.nombre) || !sinAngular(editarTicket.telefono)) errs.push("Caracteres no permitidos");
+    if (errs.length) {
+      setErroresEditar(errs);
       return;
     }
-    if (!sinAngular(editarTicket.nombre) || !sinAngular(editarTicket.telefono)) {
-      alertaAdvertencia("Caracteres no permitidos");
-      return;
-    }
+    setErroresEditar([]);
 
     const res = await fetchSeguro(`/api/tickets/${editarTicket.id}`, {
       method: "PATCH",
@@ -317,8 +346,32 @@ export default function TicketsPage() {
     if (!res.ok) { alertaError(data.error || "No se pudo editar"); return; }
     alertaExito("Ticket actualizado.");
     setEditarTicket(null);
+    setErroresEditar([]);
     await loadTickets();
   };
+
+  // Bloque reutilizable de mensajes. El color sale del tema para mantener la
+  // paleta consistente con el resto del sistema.
+  const cajaErrores = (errores: string[]) => (
+    errores.length > 0 ? (
+      <div
+        style={{
+          background: `${C.red}1A`,
+          border: `1px solid ${C.red}66`,
+          borderRadius: 8,
+          padding: "8px 10px",
+          marginTop: 10,
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+        }}
+      >
+        {errores.map((msg, i) => (
+          <p key={i} style={{ color: C.red, fontSize: 12, lineHeight: 1.4 }}>• {msg}</p>
+        ))}
+      </div>
+    ) : null
+  );
 
   return (
     <div>
@@ -327,7 +380,7 @@ export default function TicketsPage() {
           <h2 style={{ fontFamily: "Syne", fontWeight: 700, fontSize: 24 }}>Módulo Tickets</h2>
           <p style={{ color: C.sub, fontSize: 14 }}>— {total} tickets</p>
         </div>
-        <Boton onClick={() => setModal(true)}>+ Crear Ticket</Boton>
+        <Boton onClick={abrirModalCrear}>+ Crear Ticket</Boton>
       </div>
 
       <input value={search} onChange={e => cambiarBusqueda(e.target.value)} placeholder="Buscar por placa o propietario…" style={{ maxWidth: 300, marginBottom: 16 }} />
@@ -389,7 +442,7 @@ export default function TicketsPage() {
       </div>
 
       {modal && (
-        <Modal title="Crear Ticket" onClose={() => setModal(false)}>
+        <Modal title="Crear Ticket" onClose={cerrarModalCrear}>
           <FilaFormulario label="Placa">
             <input
               value={form.placa}
@@ -451,15 +504,16 @@ export default function TicketsPage() {
           <p style={{ fontSize: 12, color: C.sub }}>
             La fecha y hora de ingreso se registran automáticamente con el momento actual.
           </p>
+          {cajaErrores(erroresForm)}
           <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
             <Boton onClick={crear} data-nav-submit style={{ flex: 1 }}>Crear</Boton>
-            <Boton variant="ghost" onClick={() => setModal(false)} style={{ flex: 1 }}>Cancelar</Boton>
+            <Boton variant="ghost" onClick={cerrarModalCrear} style={{ flex: 1 }}>Cancelar</Boton>
           </div>
         </Modal>
       )}
 
       {editarTicket && (
-        <Modal title={`Editar ticket #${editarTicket.id}`} onClose={() => setEditarTicket(null)}>
+        <Modal title={`Editar ticket #${editarTicket.id}`} onClose={() => { setEditarTicket(null); setErroresEditar([]); }}>
           <FilaFormulario label="Propietario">
             <input
               value={editarTicket.nombre}
@@ -488,9 +542,10 @@ export default function TicketsPage() {
             Cambiar el tipo re-resuelve la tarifa diaria; el siguiente cierre cobrará con
             la nueva referencia.
           </p>
+          {cajaErrores(erroresEditar)}
           <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
             <Boton onClick={guardarEditarTicket} data-nav-submit style={{ flex: 1 }}>Guardar</Boton>
-            <Boton variant="ghost" onClick={() => setEditarTicket(null)} style={{ flex: 1 }}>Cancelar</Boton>
+            <Boton variant="ghost" onClick={() => { setEditarTicket(null); setErroresEditar([]); }} style={{ flex: 1 }}>Cancelar</Boton>
           </div>
         </Modal>
       )}

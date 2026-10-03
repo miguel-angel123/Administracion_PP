@@ -1,5 +1,14 @@
 # Configuración de pnpm para permitir scripts de build en paquetes específicos.
 allowBuilds:
+<<<<<<< HEAD
 # Autoriza a sharp a ejecutar su build nativo cuando pnpm instala dependencias.
 # sharp suele ser usado por herramientas de imágenes y optimización.
+=======
+<<<<<<< Updated upstream
+=======
+  core-js: set this to true or false
+# Autoriza a sharp a ejecutar su build nativo cuando pnpm instala dependencias.
+# sharp suele ser usado por herramientas de imágenes y optimización.
+>>>>>>> Stashed changes
+>>>>>>> 5fbe0a0 (v2.1.1)
   sharp: true

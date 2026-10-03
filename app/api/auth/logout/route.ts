@@ -9,7 +9,7 @@ import { getSesion } from "@/lib/session";
 import { registrarLog, LOG } from "@/lib/log";
 
 // Handler POST de /api/auth/logout.
-export async function POST() {
+export async function POST(req: Request) {
   try {
     // Obtiene sesion actual antes de borrar la cookie.
     const sesion = await getSesion();
@@ -46,6 +46,12 @@ export async function POST() {
   // Respuesta positiva aunque el log/update haya fallado.
   const res = NextResponse.json({ ok: true });
 
+  // Mismo criterio que login. Si el atributo Secure del borrado no coincide
+  // con el del guardado, algunos navegadores ignoran el Set-Cookie y la
+  // cookie sobrevive al logout.
+  const proto = (req.headers.get("x-forwarded-proto") || "").split(",")[0].trim();
+  const esHttps = proto === "https" || new URL(req.url).protocol === "https:";
+
   // Invalida la cookie sobrescribiéndola con una expiración en el pasado.
   res.cookies.set("token", "", {
     // Mantiene la misma propiedad que la cookie original.
@@ -57,8 +63,8 @@ export async function POST() {
     // Debe coincidir con login: si un navegador ve sameSite distinto en el
     // Set-Cookie de borrado, puede ignorarlo y la cookie sobrevive.
     sameSite: "strict",
-    // Mismo secure que login.
-    secure: process.env.NODE_ENV === "production",
+    // Mismo criterio que login: sin esto el navegador ignora el borrado.
+    secure: esHttps,
   });
 
   // Devuelve la respuesta con la cookie invalidada.
