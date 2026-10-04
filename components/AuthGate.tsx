@@ -4,6 +4,7 @@
 
 // useState permite manejar el estado del menu lateral en pantallas pequenas.
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 
 // useAuth lee el usuario actual y el estado de carga desde el contexto global.
 import { useAuth } from "@/lib/auth";
@@ -30,6 +31,19 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, cargando } = useAuth();
   // menuAbierto controla si el sidebar movil esta visible.
   const [menuAbierto, setMenuAbierto] = useState(false);
+  const pathname = usePathname();
+
+  // Rutas que se renderizan fuera del shell autenticado: sin sidebar, sin
+  // campana y sin exigir login. La política de tratamiento de datos entra
+  // aquí porque el enlace del login debe abrirla a un visitante anónimo.
+  const PUBLICAS = ["/privacidad"];
+  const esPublica = PUBLICAS.some(r => pathname === r || pathname.startsWith(r + "/"));
+
+  // Se evalúa antes de `cargando`: la página no debe esperar a /api/auth/me,
+  // que un visitante sin sesión tarda en resolver.
+  if (esPublica) {
+    return <>{children}</>;
+  }
 
   // Mientras AuthProvider consulta la sesion actual, se muestra una pantalla simple.
   if (cargando) {

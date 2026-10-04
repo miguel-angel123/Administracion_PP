@@ -17,6 +17,11 @@ const permitidos: Record<string, string[]> = {
   cliente: ["/perfil", "/tarifas", "/sugerencias"],
 };
 
+// Rutas accesibles sin importar el rol o la presencia de sesión. La política
+// de tratamiento de datos debe poder consultarse antes de registrarse y desde
+// cualquier rol; ninguna lista de `permitidos` la incluye.
+const publicas = ["/privacidad"];
+
 // Lógica de ruteo separada para poder medir duración sin duplicar el return.
 async function manejar(req: NextRequest) {
   // Extrae la ruta solicitada, por ejemplo "/", "/vehiculos" o "/api/tickets".
@@ -25,6 +30,12 @@ async function manejar(req: NextRequest) {
   // Permite pasar recursos internos de Next.js sin aplicar reglas de negocio.
   if (pathname.startsWith("/_next")) {
     // NextResponse.next() significa: "continúa con el flujo normal".
+    return NextResponse.next();
+  }
+
+  // Antes del guard de rol: un gerente autenticado que abre /privacidad desde
+  // el enlace del login debe verla, no ser redirigido a "/".
+  if (publicas.some(r => pathname === r || pathname.startsWith(r + "/"))) {
     return NextResponse.next();
   }
 

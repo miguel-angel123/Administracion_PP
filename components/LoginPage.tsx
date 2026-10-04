@@ -7,6 +7,9 @@ import { useState } from "react";
 // useRouter permite redirigir despues de iniciar sesion.
 import { useRouter } from "next/navigation";
 
+// Link permite navegar a la politica de tratamiento de datos sin recargar.
+import Link from "next/link";
+
 // useAuth entrega la funcion login desde el contexto global de autenticacion.
 import { useAuth } from "@/lib/auth";
 
@@ -152,6 +155,24 @@ export default function LoginPage() {
               }}
             >Ingresar</button>
           </div>
+
+          {/* Aviso legal agrupado con el formulario: mismo bloque visual que la Tarjeta. */}
+          <p style={{
+            textAlign: "center",
+            fontSize: 12,
+            color: C.sub,
+            marginTop: 20,
+            lineHeight: 1.5,
+          }}>
+            Al ingresar aceptas la{" "}
+            <Link
+              href="/privacidad"
+              style={{ color: C.accent, textDecoration: "underline" }}
+            >
+              política de tratamiento de datos
+            </Link>
+            .
+          </p>
         </Tarjeta>
       </div>
     </div>
