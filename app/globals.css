@@ -142,8 +142,11 @@ button {
     position: fixed !important;
     top: 0;
     left: 0;
-    height: 100vh;
-    min-height: 100vh !important;
+    /* dvh descuenta la barra de navegación inferior del sistema. `vh` la
+       incluye y deja el botón de logout detrás de atrás/home/recientes. */
+    height: 100dvh;
+    max-height: 100dvh;
+    min-height: 100dvh !important;
     /* Queda encima del backdrop. */
     z-index: 1000;
     /* Lo oculta desplazandolo completamente hacia la izquierda. */
@@ -157,6 +160,15 @@ button {
   /* Cuando AuthGate agrega la clase open, el sidebar entra en pantalla. */
   .sidebar.open {
     transform: translateX(0);
+  }
+
+  /* Mantiene la acción de salida visible mientras se desplaza el menú.
+     El padding inline del footer respeta la zona segura inferior del móvil. */
+  .sidebar-footer {
+    position: sticky;
+    bottom: 0;
+    background: inherit;
+    z-index: 1;
   }
 
   /* Ajusta el area principal para dejar espacio al boton superior. */

@@ -198,7 +198,13 @@ export default function BarraLateral({ open = false, onClose }: Props) {
       </nav>
 
       {/* Bloque inferior con accion de cerrar sesion. */}
-      <div style={{ padding: "12px 12px", borderTop: `1px solid ${C.border}` }}>
+      <div className="sidebar-footer" style={{
+        // safe-area-inset-bottom reserva espacio para el home indicator de
+        // iPhone y gestos de Android. Cae a 0 en navegadores sin safe areas.
+        padding: "12px 12px calc(12px + env(safe-area-inset-bottom, 0px))",
+        borderTop: `1px solid ${C.border}`,
+        flexShrink: 0,
+      }}>
         {/* Boton que llama al logout del contexto. */}
         <button onClick={handleLogout} style={{
           // Estilos discretos para una accion secundaria.

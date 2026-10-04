@@ -8,6 +8,17 @@ import AuthGate from "@/components/AuthGate";
 // Carga los estilos globales de toda la aplicacion.
 import "./globals.css";
 
+// Tipo oficial de Next 15 para viewport (convive con el <head> actual).
+import type { Viewport } from "next";
+
+// viewport-fit=cover habilita env(safe-area-inset-*). Sin esto, el padding
+// del footer del sidebar no reserva espacio para el home indicator de iOS.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 // RootLayout es el layout raiz de Next.js.
 // Todo lo que este dentro de app/ se renderiza dentro de este componente.
 export default function RootLayout({ children }: { children: React.ReactNode }) {
