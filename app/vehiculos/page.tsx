@@ -67,6 +67,12 @@ const CLAVE_FIRMA_GERENTE = "pradera:firmaGerente";
 // Clave sin prefijo usada por versiones anteriores. Se migra al montar.
 const CLAVE_FIRMA_LEGACY = "firmaGerente";
 
+// Datos bancarios del parqueadero: persisten entre contratos para que el
+// gerente no reescriba el número de cuenta cada vez. Viven en el navegador,
+// igual que la firma.
+const CLAVE_TIPO_PAGO = "pradera:tipoPago";
+const CLAVE_NUMERO_CUENTA = "pradera:numeroCuenta";
+
 // Tamaño máximo de la firma normalizada. El canvas reduce fotos de celular
 // (varios MB) a algo que quepa holgado en localStorage.
 const ANCHO_FIRMA = 600;
@@ -86,6 +92,10 @@ type CampoContrato = {
   valor: (d: DatosContratoPDF) => string;
   // Vuelve a escribir el campo desde el texto editado en el modal.
   escribir: (d: DatosContratoPDF, v: string) => DatosContratoPDF;
+  // Si viene, el modal pinta un <select> en vez de un <input>. El PDF sigue
+  // leyendo `valor` como string, así un contrato con un valor fuera de la
+  // lista no se rompe.
+  opciones?: readonly string[];
 };
 
 // Campos opcionales del contrato. Cada uno se puede incluir o excluir antes de
@@ -100,6 +110,19 @@ const CAMPOS_CONTRATO: CampoContrato[] = [
   { clave: "precio", etiqueta: "Precio mensual", valor: d => (d.precio != null ? String(d.precio) : ""), escribir: (d, v) => ({ ...d, precio: v === "" ? null : Number(v) }) },
   { clave: "dia_pago", etiqueta: "Día de pago", valor: d => (d.dia_pago != null ? String(d.dia_pago) : ""), escribir: (d, v) => ({ ...d, dia_pago: v === "" ? null : Number(v) }) },
   { clave: "pagado", etiqueta: "Estado del pago", valor: d => String(!!d.pagado), escribir: (d, v) => ({ ...d, pagado: v === "true" }) },
+  {
+    clave: "tipo_pago",
+    etiqueta: "Tipo de pago",
+    valor: d => d.tipo_pago ?? "",
+    escribir: (d, v) => ({ ...d, tipo_pago: v }),
+    opciones: ["Efectivo", "Nequi", "Daviplata", "Banco Caja Social"],
+  },
+  {
+    clave: "numero_cuenta",
+    etiqueta: "N° cuenta destino",
+    valor: d => d.numero_cuenta ?? "",
+    escribir: (d, v) => ({ ...d, numero_cuenta: v }),
+  },
 ];
 
 const INCLUIR_DEFAULT: Record<string, boolean> = Object.fromEntries(
@@ -280,6 +303,23 @@ export default function VehiculosPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Persiste los datos bancarios cada vez que cambian. localStorage es síncrono
+  // y barato: no hace falta debounce. Si el usuario desmarca el checkbox, el
+  // valor sigue en `datos`, así que también se preserva.
+  useEffect(() => {
+    if (!contrato) return;
+    try {
+      if (contrato.datos.tipo_pago) {
+        localStorage.setItem(CLAVE_TIPO_PAGO, contrato.datos.tipo_pago);
+      }
+      if (contrato.datos.numero_cuenta) {
+        localStorage.setItem(CLAVE_NUMERO_CUENTA, contrato.datos.numero_cuenta);
+      }
+    } catch {
+      // Almacenamiento bloqueado: la sesión se pierde al cerrar el modal.
+    }
+  }, [contrato]);
 
   // Cierra el menú contextual cuando el usuario interactúa fuera de él.
   useEffect(() => {
@@ -692,6 +732,17 @@ export default function VehiculosPage() {
   // Arma el contrato a partir del vehículo. Todos los campos opcionales
   // arrancan marcados; el gerente desmarca los que no deban viajar en el PDF.
   const abrirContrato = (v: VehiculoDB) => {
+    // Cuenta destino y tipo de pago se recuerdan entre contratos. La cuenta del
+    // parqueadero no cambia; volver a escribirla cada vez es fricción pura.
+    let tipoPago: string | null = null;
+    let numeroCuenta: string | null = null;
+    try {
+      tipoPago = localStorage.getItem(CLAVE_TIPO_PAGO);
+      numeroCuenta = localStorage.getItem(CLAVE_NUMERO_CUENTA);
+    } catch {
+      // Modo privado o almacenamiento bloqueado: se sigue sin persistencia.
+    }
+
     setContrato({
       datos: {
         placa: v.placa,
@@ -706,6 +757,10 @@ export default function VehiculosPage() {
         precio: v.precio ?? null,
         dia_pago: v.dia_pago ?? null,
         pagado: v.pagado ?? null,
+        // "Banco Caja Social" arranca por defecto: es el caso del 90% de los
+        // contratos. El gerente lo cambia solo cuando cobra por otro medio.
+        tipo_pago: tipoPago ?? "Banco Caja Social",
+        numero_cuenta: numeroCuenta,
       },
       incluir: { ...INCLUIR_DEFAULT },
       editando: false,
@@ -1348,6 +1403,20 @@ export default function VehiculosPage() {
                       />
                       <span style={{ fontSize: 12, color: C.sub }}>Pagado</span>
                     </label>
+                  ) : campo.opciones ? (
+                    <select
+                      style={{ flex: 1 }}
+                      value={campo.valor(contrato.datos)}
+                      onChange={e =>
+                        setContrato(c => (c ? { ...c, datos: campo.escribir(c.datos, e.target.value) } : c))
+                      }
+                    >
+                      {/* Opción vacía: permite blanquear el campo sin forzar uno de la lista. */}
+                      <option value="">—</option>
+                      {campo.opciones.map(op => (
+                        <option key={op} value={op}>{op}</option>
+                      ))}
+                    </select>
                   ) : (
                     <input
                       style={{ flex: 1 }}

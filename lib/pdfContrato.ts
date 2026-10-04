@@ -10,7 +10,8 @@ import { cargarLogoPDF, logoPDFSincrono, estamparLogoPDF, type LogoPDF } from ".
 // un campo marcado false se omite del PDF por completo, no sólo se deja vacío.
 export type CampoContrato =
   | "telefono" | "correo" | "clase" | "color" | "puesto"
-  | "ingreso" | "precio" | "dia_pago" | "pagado";
+  | "ingreso" | "precio" | "dia_pago" | "pagado"
+  | "tipo_pago" | "numero_cuenta";
 
 export type DatosContratoPDF = {
   placa: string;
@@ -25,6 +26,13 @@ export type DatosContratoPDF = {
   precio?: number | null;
   dia_pago?: number | null;
   pagado?: boolean | null;
+  // Método por el que el cliente paga la mensualidad. Sin restricción en el
+  // tipo: el modal ofrece una lista corta, pero un contrato viejo o un ajuste
+  // manual no deben romper el tipo.
+  tipo_pago?: string | null;
+  // Cuenta destino del parqueadero para transferencias (o el número de celular
+  // para Nequi/Daviplata). Se imprime tal cual, sin formato.
+  numero_cuenta?: string | null;
   firmaGerente?: string | null;
   // Logo del parqueadero ya horneado a dataURL. El ratio (ancho/alto) viaja
   // aparte porque jsPDF no expone dimensiones del dataURL que recibe.
@@ -92,7 +100,9 @@ export function construirContratoPDFBlob(
 
   // d.logo === undefined → usa el logo precargado. null explícito → sin logo.
   const logo = d.logo === undefined ? logoPDFSincrono() : d.logo;
-  estamparLogoPDF(doc, logo, 14, 10, 60, 30);
+  // x=6 en lugar de 14: el borde derecho del logo (6+60=66) queda con holgura
+  // frente al arranque del título centrado (~68). Estaba traspasando.
+  estamparLogoPDF(doc, logo, 2, 10, 60, 30);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
@@ -136,6 +146,10 @@ export function construirContratoPDFBlob(
       "Estado del pago",
       d.pagado != null ? (d.pagado ? "Pagado" : "Pendiente") : "—",
     ]);
+  }
+  if (inc.tipo_pago !== false) filasEco.push(["Tipo de pago", texto(d.tipo_pago)]);
+  if (inc.numero_cuenta !== false) {
+    filasEco.push(["N° de cuenta destino", texto(d.numero_cuenta)]);
   }
 
   if (filasEco.length) {
