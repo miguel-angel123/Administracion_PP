@@ -255,11 +255,12 @@ export async function registrarVehiculoMensual(datos: {
   puestosIdPuesto?: number | string;
   precio?: number | string;
   diaPago?: number | string;
+  clase?: string;
 }) {
   // Extrae campos y define color por defecto.
   const {
     placa, doc, nombre, telefono, color = "No especificado",
-    puestosIdPuesto, precio, diaPago,
+    puestosIdPuesto, precio, diaPago, clase,
   } = datos;
   // Normaliza placa antes de guardar.
   const placaLimpia = String(placa || "").toUpperCase().trim();
@@ -335,17 +336,28 @@ export async function registrarVehiculoMensual(datos: {
     // Guarda si la operacion creo/revivio cliente.
     clienteCreado = resultadoCliente.creado;
 
+    // La tarifa mensual por defecto resuelve "Automóvil". Cuando llega una
+    // clase explícita, se filtra por el nombre del tipo para que el vehículo
+    // quede con la tarifa correcta desde el INSERT de `vehiculos` y de
+    // `contratos`; sin esto, el gerente elegía "Moto" y quedaba como Automóvil.
+    const filtroClase = clase ? "AND tv.nombre = $1" : "";
+    const paramsCatalogo = clase ? [clase] : [];
+
     // Ambos catálogos son estáticos y se necesitan en la misma fila del
     // INSERT. Un SELECT con subselects escalares liquida los dos lookups de
     // los que antes se hacían por separado.
     const catalogo = await cliente.query(
       `SELECT
-         (SELECT id_tarifa FROM tarifa
-          WHERE tipo_vehiculo = 'mensual' AND fecha_eliminado IS NULL
+         (SELECT t.id_tarifa FROM tarifa t
+          JOIN tipos_vehiculo tv ON tv.id_tipo_vehiculo = t.tipo_vehiculo_id
+          WHERE t.tipo_vehiculo = 'mensual'
+            AND t.fecha_eliminado IS NULL
+            ${filtroClase}
           LIMIT 1) AS tarifa_id,
          (SELECT id_estado FROM estados
           WHERE nombre_estado = 'activo'
-          LIMIT 1) AS estado_id`
+          LIMIT 1) AS estado_id`,
+      paramsCatalogo
     );
 
     // Id de tarifa mensual vigente.
@@ -353,7 +365,12 @@ export async function registrarVehiculoMensual(datos: {
     // Id del estado activo.
     const estadoId = catalogo.rows[0].estado_id;
 
-    // Sin catalogos base no se puede crear vehiculo.
+    // Diferencia "clase inexistente" (400, culpa del body) del "catálogo base
+    // sin configurar" (500, culpa del seed). El check anterior daba 500 en
+    // ambos y enmascaraba un error del operador.
+    if (clase && !tarifaId) {
+      throw new ErrorDominio(`No existe la clase ${clase}`, 400);
+    }
     if (!tarifaId || !estadoId) {
       throw new ErrorDominio("Faltan tarifas o estados configurados", 500);
     }

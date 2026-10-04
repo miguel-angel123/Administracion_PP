@@ -202,6 +202,8 @@ export default function TicketsPage() {
       if (ultimaPlacaConsultada.current !== placa) return;
       setInfoVehiculo(data);
 
+      // Si la placa existe, autocompleta; si no, se respeta lo que el operador
+      // ya escribió (una corrección de typo no debe borrar el resto del form).
       if (data.existe && data.vehiculo) {
         const v = data.vehiculo;
         setForm(f => ({
@@ -211,8 +213,6 @@ export default function TicketsPage() {
           telefono: v.telefono || "",
           tipo: v.tipo_vehiculo_id ? String(v.tipo_vehiculo_id) : "",
         }));
-      } else {
-        setForm(f => ({ ...f, doc: "", nombre: "", telefono: "", tipo: "" }));
       }
     } catch {
       // Red caída: dejar el formulario en estado neutro solo si esta placa

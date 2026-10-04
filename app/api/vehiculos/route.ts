@@ -105,6 +105,7 @@ export async function POST(req: Request) {
       nombre: limpiarTexto(body.nombre, 100) || undefined,
       telefono: limpiarTelefono(body.telefono) || undefined,
       color: limpiarTexto(body.color, 30) || undefined,
+      clase: limpiarTexto(body.clase, 30) || undefined,
       puestosIdPuesto: body.puestosIdPuesto,
       precio: body.precio,
       diaPago: body.diaPago,

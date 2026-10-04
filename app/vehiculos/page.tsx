@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { C } from "@/lib/tema";
 import { Boton, Tarjeta, Etiqueta, Modal, FilaFormulario } from "@/lib/componentes";
 import { useAuth } from "@/lib/auth";
@@ -78,10 +78,10 @@ const CLAVE_NUMERO_CUENTA = "pradera:numeroCuenta";
 const ANCHO_FIRMA = 600;
 const ALTO_FIRMA = 240;
 
-// Umbrales de long-press. 3 s entra en modo "mover de puesto"; 6 s abre el
-// menú de pago. Ambos corren en paralelo: si el dedo aguanta hasta 6 s, el
-// modo "mover" se cancela y escala al menú, evitando dos modos activos a la
-// vez. 3 s evita que un roce durante el scroll dispare el modo por accidente.
+// Umbrales de long-press sobre el chip en táctil. 500 ms entra en modo "mover
+// de puesto"; 1 s escala al menú de pago y cancela el modo "mover". Corren en
+// paralelo: el de 1 s gana si el dedo aguanta. El scroll no interfiere porque
+// `.chip-vehiculo` usa `touch-action: none`.
 const MS_LONG_PRESS_MOVER = 500;
 const MS_LONG_PRESS_PAGO = 1000;
 
@@ -250,21 +250,19 @@ export default function VehiculosPage() {
   const canEdit = user?.role === "gerente";
   const canInactivate = user?.role === "gerente";
 
-  const loadPuestos = async () => {
+  const loadPuestos = useCallback(async () => {
     const res = await fetch("/api/vehiculos?recurso=puestos");
     const data = await res.json();
     if (Array.isArray(data)) setPuestos(data);
-  };
+  }, []);
 
-  const loadInactivos = async () => {
+  const loadInactivos = useCallback(async () => {
     const res = await fetch("/api/vehiculos?recurso=papelera");
     const data = await res.json();
     if (Array.isArray(data)) setInactivos(data);
-  };
+  }, []);
 
-  useLiveData(() => {
-    loadPuestos();
-  }, 8000);
+  useLiveData(loadPuestos, 8000);
 
   useEffect(() => {
     loadPuestos();
@@ -873,7 +871,7 @@ export default function VehiculosPage() {
           <div style={{
             marginBottom: 16, padding: "10px 14px", borderRadius: 8,
             background: "#dbeafe", border: "1px solid #3b82f6",
-            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,position: "fixed", top: 10,
+            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
           }}>
             <span style={{ fontSize: 13, color: "#1e3a8a" }}>
               Moviendo <b>{moviendo.placa}</b>. Toca un puesto libre para reasignarlo, o pulsa ESC para cancelar.

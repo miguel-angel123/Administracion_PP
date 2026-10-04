@@ -59,6 +59,9 @@ export default function Inicio() {
     puestosOcupados: 0,
     puestosDisponibles: 0,
   });
+  // Contadores operativos reales. Vienen del endpoint agregado, no del listado
+  // de 4 recientes que solo alimenta la tarjeta "Vehículos Recientes".
+  const [resumenVeh, setResumenVeh] = useState({ activos: 0, mensuales: 0 });
   const [tarifas, setTarifas] = useState<TarifaAdmin[]>([]);
   const [tiposVeh, setTiposVeh] = useState<TipoVehiculo[]>([]);
   const [totalInput, setTotalInput] = useState("");
@@ -72,13 +75,35 @@ export default function Inicio() {
 
   const load = useCallback(async () => {
     try {
-      const [empleadosRes, sugerenciasRes, vehiculosRes] = await Promise.all([
+      const esOperativo = user?.role === "gerente" || user?.role === "empleado";
+      const promesas: Promise<any>[] = [
         fetch("/api/usuarios?rol=empleado&tamano=1").then(r => r.json()),
         fetch("/api/sugerencias").then(r => r.json()),
         fetch("/api/vehiculos?tamano=4").then(r => r.json()),
-      ]);
+      ];
+      // Cliente no ve contadores operativos; /api/estadisticas le responde 403.
+      if (esOperativo) {
+        promesas.push(fetch("/api/estadisticas").then(r => r.json()));
+      }
+      const [empleadosRes, sugerenciasRes, vehiculosRes, statsRes] = await Promise.all(promesas);
 
       setEmpleadosCount(typeof empleadosRes?.total === "number" ? empleadosRes.total : 0);
+
+      if (statsRes?.totalVehiculos !== undefined) {
+        setResumenVeh({
+          activos: statsRes.activos ?? 0,
+          mensuales: statsRes.mensuales ?? 0,
+        });
+        setStats({
+          totalPuestos: statsRes.totalPuestos ?? 0,
+          puestosOcupados: statsRes.puestosOcupados ?? 0,
+          puestosDisponibles: statsRes.puestosDisponibles ?? 0,
+        });
+        // Solo el gerente edita el total; en otros roles el input queda oculto.
+        if (user?.role === "gerente") {
+          setTotalInput(String(statsRes.totalPuestos ?? 0));
+        }
+      }
 
       const s = Array.isArray(sugerenciasRes)
         ? sugerenciasRes.map((s: any) => ({
@@ -102,7 +127,7 @@ export default function Inicio() {
     } catch (e) {
       console.error("Error cargando dashboard", e);
     }
-  }, []);
+  }, [user?.role]);
 
   useLiveData(load, 10_000);
 
@@ -111,20 +136,11 @@ export default function Inicio() {
 
     async function loadConfig() {
       try {
-        const [statsRes, tarifasRes, tiposRes] = await Promise.all([
-          fetch("/api/estadisticas").then(r => r.json()),
+        const [tarifasRes, tiposRes] = await Promise.all([
           fetch("/api/tarifas/admin").then(r => r.json()),
           fetch("/api/vehiculos?recurso=tipos").then(r => r.json()),
         ]);
 
-        if (statsRes?.totalPuestos !== undefined) {
-          setStats({
-            totalPuestos: statsRes.totalPuestos ?? 0,
-            puestosOcupados: statsRes.puestosOcupados ?? 0,
-            puestosDisponibles: statsRes.puestosDisponibles ?? 0,
-          });
-          setTotalInput(String(statsRes.totalPuestos ?? 0));
-        }
         if (Array.isArray(tarifasRes)) setTarifas(tarifasRes);
         if (Array.isArray(tiposRes)) setTiposVeh(tiposRes);
       } catch (e) {
@@ -152,8 +168,10 @@ export default function Inicio() {
     }
   }, [user, router]);
 
-  const activos = vehiculos.filter(v => v.estado === "activo").length;
-  const mensuales = vehiculos.filter(v => v.tipo === "mensual" && v.estado === "activo").length;
+  // Contadores reales: los entrega /api/estadisticas, no el listado de 4
+  // "Recientes" (que se quedaba corto con >4 vehículos en el parqueadero).
+  const activos = resumenVeh.activos;
+  const mensuales = resumenVeh.mensuales;
   const pendientes = sugerencias.filter(s => s.estado === "pendiente").length;
 
   const tarifasVisibles = tarifas.filter(
