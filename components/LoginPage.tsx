@@ -152,18 +152,6 @@ export default function LoginPage() {
               }}
             >Ingresar</button>
           </div>
-
-          {/* Bloque informativo con credenciales demo visibles en desarrollo. */}
-          <div style={{
-            marginTop: 20, padding: "12px 16px", background: C.surface,
-            borderRadius: 10, fontSize: 12, color: C.sub,
-          }}>
-            <p style={{ fontWeight: 600, marginBottom: 6 }}>Cuentas de prueba:</p>
-            <p>🔴 Gerente: <b>1122338718</b> / 123</p>
-            <p>🔵 Empleado: <b>124</b> / 124</p>
-            <p>🔵 Empleado: <b>123</b> / 123</p>
-            <p>🟢 Cliente: <b>1234</b> / 1234</p>
-          </div>
         </Tarjeta>
       </div>
     </div>

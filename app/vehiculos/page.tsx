@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { C } from "@/lib/tema";
 import { Boton, Tarjeta, Etiqueta, Modal, FilaFormulario } from "@/lib/componentes";
 import { useAuth } from "@/lib/auth";
@@ -72,9 +72,12 @@ const CLAVE_FIRMA_LEGACY = "firmaGerente";
 const ANCHO_FIRMA = 600;
 const ALTO_FIRMA = 240;
 
-// Milisegundos para que un touch sostenido cuente como long-press. 500 es el
-// estándar Android: con menos se dispara por accidente al hacer scroll.
-const MS_LONG_PRESS = 500;
+// Umbrales de long-press. 3 s entra en modo "mover de puesto"; 6 s abre el
+// menú de pago. Ambos corren en paralelo: si el dedo aguanta hasta 6 s, el
+// modo "mover" se cancela y escala al menú, evitando dos modos activos a la
+// vez. 3 s evita que un roce durante el scroll dispare el modo por accidente.
+const MS_LONG_PRESS_MOVER = 500;
+const MS_LONG_PRESS_PAGO = 1000;
 
 type CampoContrato = {
   clave: keyof DatosContratoPDF;
@@ -159,13 +162,19 @@ export default function VehiculosPage() {
   // En móvil la alerta centrada tapaba el campo que había que corregir.
   const [erroresForm, setErroresForm] = useState<string[]>([]);
 
-  // Context menu sobre el chip: alterna el estado de pago y entra a "mover".
+  // Context menu sobre el chip: alterna el estado de pago.
   const [menu, setMenu] = useState<{
     placa: string;
     x: number;
     y: number;
     pagado: boolean;
   } | null>(null);
+
+  // Ref al nodo del menú contextual para medirlo tras montarlo y desplazarlo
+  // si cae contra el borde. `menuPos` guarda las coordenadas ya recortadas al
+  // viewport; `menu.x/y` siguen siendo el punto crudo del toque.
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
 
   // Firma del parqueadero: vive en el navegador del gerente y se estampa en
   // todos los contratos que genere.
@@ -178,21 +187,29 @@ export default function VehiculosPage() {
   // Vehículo inactivo en modo "colocar": un chip sigue al mouse y el próximo
   // clic sobre un puesto libre lo reactiva ahí. null = modo inactivo.
   const [colocando, setColocando] = useState<VehiculoDB | null>(null);
-  const [mouse, setMouse] = useState<{ x: number; y: number } | null>(null);
-  const [puestoHover, setPuestoHover] = useState<string | null>(null);
-
-  // Vehículo activo en modo "mover": se abre desde el menú contextual y el
+  // Vehículo activo en modo "mover": se abre con long-press sostenido y el
   // próximo clic sobre un puesto libre lo reasigna. Alternativa táctil al
   // drag&drop, que en móvil compite con el scroll.
   const [moviendo, setMoviendo] = useState<{ placa: string; pagado: boolean } | null>(null);
+  const [mouse, setMouse] = useState<{ x: number; y: number } | null>(null);
+  const [puestoHover, setPuestoHover] = useState<string | null>(null);
 
   // Detección de puntero grueso (dedo). Decide si el chip es `draggable` o si
   // se activa el long-press que abre el menú.
   const [esTactil, setEsTactil] = useState(false);
-  // Timer del long-press activo, si lo hay.
-  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Timers de long-press. Uno para el modo mover (3 s), otro para el menú de
+  // pago (6 s). Se limpian los dos al mismo tiempo en cualquier cancelación.
+  const longPressMoverRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressPagoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Bandera que suprime el `click` sintetizado tras un long-press consumado.
   const longPressConsumido = useRef(false);
+
+  // Tolerancia de deriva del dedo. Con `touch-action: none` ya no compite
+  // con el scroll, así que el margen solo absorbe micro-temblores y una
+  // pulsación humana normal cabe holgada.
+  const UMBRAL_MOVIMIENTO = 24;
+  // Punto donde ancló el toque para medir la deriva.
+  const inicioToque = useRef<{ x: number; y: number } | null>(null);
 
   // Escala visual del mapa interactivo. Permite encajar parqueaderos con muchos
   // puestos dentro del viewport sin scroll vertical.
@@ -235,9 +252,14 @@ export default function VehiculosPage() {
       if (Array.isArray(data)) setTiposVeh(data);
     })();
 
-    // Puntero grueso (dedo) vs fino (mouse/trackpad). `pointer: coarse` cubre
-    // tablets y móviles sin depender de sniffing de user-agent.
-    setEsTactil(window.matchMedia("(pointer: coarse)").matches);
+    // `pointer: coarse` falla en Android con stylus/DeX/teclado activos.
+    // `maxTouchPoints` y `ontouchstart` cubren esos casos: en cualquiera de
+    // los tres, el chip debe desactivar `draggable` y el tooltip.
+    setEsTactil(
+      window.matchMedia("(pointer: coarse)").matches ||
+      navigator.maxTouchPoints > 0 ||
+      "ontouchstart" in window
+    );
 
     // Recupera la firma guardada. Si solo existe la clave antigua, se mueve a
     // la nueva y se borra: así queda una única fuente a partir de aquí.
@@ -262,13 +284,38 @@ export default function VehiculosPage() {
   // Cierra el menú contextual cuando el usuario interactúa fuera de él.
   useEffect(() => {
     if (!menu) return;
-    const cerrar = () => setMenu(null);
+    // Marca de apertura: el navegador sintetiza un click al levantar el dedo
+    // tras un long-press (y otro antes si el gesture fue tomado por el
+    // sistema). Sin esta ventana el menú se cierra solo apenas se abre.
+    const abiertoEn = Date.now();
+    const cerrar = () => {
+      if (Date.now() - abiertoEn < 500) return;
+      setMenu(null);
+    };
     window.addEventListener("click", cerrar);
+    window.addEventListener("touchstart", cerrar, { passive: true });
     window.addEventListener("scroll", cerrar, { passive: true });
     return () => {
       window.removeEventListener("click", cerrar);
+      window.removeEventListener("touchstart", cerrar);
       window.removeEventListener("scroll", cerrar);
     };
+  }, [menu]);
+
+  // Posiciona el menú recortado al viewport. Corre antes del paint, así que el
+  // primer frame que ve el usuario ya está en la ubicación final. Depende de
+  // `menu` (identidad nueva en cada apertura): cada vez que se abre, se vuelve
+  // a medir y recortar.
+  useLayoutEffect(() => {
+    if (!menu || !menuRef.current) return;
+    const r = menuRef.current.getBoundingClientRect();
+    const MARGEN = 8;
+    const maxX = Math.max(MARGEN, window.innerWidth  - r.width  - MARGEN);
+    const maxY = Math.max(MARGEN, window.innerHeight - r.height - MARGEN);
+    setMenuPos({
+      x: Math.min(Math.max(menu.x, MARGEN), maxX),
+      y: Math.min(Math.max(menu.y, MARGEN), maxY),
+    });
   }, [menu]);
 
   // Modo "colocar": el chip persigue al puntero y ESC aborta la operación.
@@ -284,8 +331,8 @@ export default function VehiculosPage() {
     };
   }, [colocando]);
 
-  // Modo "mover": ESC cancela; no hay chip flotante porque el vehículo ya
-  // está pintado en su puesto actual.
+  // Modo "mover": ESC cancela. No hay chip flotante porque el vehículo ya está
+  // pintado en su puesto actual.
   useEffect(() => {
     if (!moviendo) return;
     const cancelar = (e: KeyboardEvent) => { if (e.key === "Escape") setMoviendo(null); };
@@ -295,7 +342,8 @@ export default function VehiculosPage() {
 
   // Al desmontar, no dejar un timeout colgando.
   useEffect(() => () => {
-    if (longPressRef.current) clearTimeout(longPressRef.current);
+    if (longPressMoverRef.current) clearTimeout(longPressMoverRef.current);
+    if (longPressPagoRef.current) clearTimeout(longPressPagoRef.current);
   }, []);
 
   const puestosLibres = puestos.filter(p =>
@@ -469,7 +517,8 @@ export default function VehiculosPage() {
     await loadInactivos();
   };
 
-  // Reasignación táctil: mismo PATCH de drag&drop, pero sin arrastrar.
+  // Reasignación táctil: mismo PATCH de drag&drop, pero sin arrastrar. Se entra
+  // por long-press de 3 s sobre el chip.
   const moverAPuesto = async (puesto: PuestoDB) => {
     if (!moviendo || puesto.estado_puesto) return;
 
@@ -506,30 +555,61 @@ export default function VehiculosPage() {
   };
 
   // --- LONG-PRESS DEL CHIP (solo puntero táctil) ---
-  // Arma el timer; cualquier movimiento o levantamiento del dedo antes de
-  // MS_LONG_PRESS lo cancela. Al vencer, se abre el menú contextual del chip
-  // en el punto tocado y se marca la bandera para suprimir el `click` que el
-  // navegador emite al soltar.
+  // Arma los dos timers; cualquier movimiento fuera del umbral o levantamiento
+  // del dedo antes de sus umbrales los cancela. A los 3 s entra en modo
+  // "mover"; a los 6 s escala al menú de pago y cancela el modo previo.
+  const cancelarLongPress = () => {
+    inicioToque.current = null;
+    if (longPressMoverRef.current) {
+      clearTimeout(longPressMoverRef.current);
+      longPressMoverRef.current = null;
+    }
+    if (longPressPagoRef.current) {
+      clearTimeout(longPressPagoRef.current);
+      longPressPagoRef.current = null;
+    }
+  };
+
   const iniciarLongPress = (e: React.TouchEvent, v: VehiculoPuesto) => {
-    if (!canEdit) return;
+    // En modo "colocar" (reactivación) el chip no debe abrir otro modo: el
+    // operador está eligiendo puesto, no moviendo un activo.
+    if (!canEdit || colocando) return;
     const t = e.touches[0];
+    if (!t) return;
     const x = t.clientX;
     const y = t.clientY;
 
     longPressConsumido.current = false;
-    if (longPressRef.current) clearTimeout(longPressRef.current);
-    longPressRef.current = setTimeout(() => {
-      longPressRef.current = null;
+    cancelarLongPress();
+    // cancelarLongPress limpia el ancla; se re-fija aquí porque el gesto sigue.
+    inicioToque.current = { x, y };
+
+    // 3 s: entra en modo "mover". El vehículo ya está colocado, así que no hay
+    // chip flotante: se espera el tap en un puesto libre.
+    longPressMoverRef.current = setTimeout(() => {
+      longPressMoverRef.current = null;
+      setMenu(null);
+      setMoviendo({ placa: v.placa, pagado: !!v.pagado });
+    }, MS_LONG_PRESS_MOVER);
+
+    // 6 s: escala al menú de pago. Cancela el modo "mover" si ya se había
+    // activado — dos estados simultáneos confundirían al operador.
+    longPressPagoRef.current = setTimeout(() => {
+      longPressPagoRef.current = null;
       longPressConsumido.current = true;
+      setMoviendo(null);
       setMenu({ placa: v.placa, x, y, pagado: !!v.pagado });
-    }, MS_LONG_PRESS);
+    }, MS_LONG_PRESS_PAGO);
   };
 
-  const cancelarLongPress = () => {
-    if (longPressRef.current) {
-      clearTimeout(longPressRef.current);
-      longPressRef.current = null;
-    }
+  const moverLongPress = (e: React.TouchEvent) => {
+    if (!inicioToque.current) return;
+    const t = e.touches[0];
+    if (!t) return;
+    const dx = t.clientX - inicioToque.current.x;
+    const dy = t.clientY - inicioToque.current.y;
+    // Solo cancela si el dedo se movió lo suficiente para indicar scroll real.
+    if (Math.hypot(dx, dy) > UMBRAL_MOVIMIENTO) cancelarLongPress();
   };
 
   // --- LÓGICA DE DRAG AND DROP (MAPA INTERACTIVO) ---
@@ -738,7 +818,7 @@ export default function VehiculosPage() {
           <div style={{
             marginBottom: 16, padding: "10px 14px", borderRadius: 8,
             background: "#dbeafe", border: "1px solid #3b82f6",
-            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
+            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,position: "fixed", top: 10,
           }}>
             <span style={{ fontSize: 13, color: "#1e3a8a" }}>
               Moviendo <b>{moviendo.placa}</b>. Toca un puesto libre para reasignarlo, o pulsa ESC para cancelar.
@@ -749,8 +829,8 @@ export default function VehiculosPage() {
 
         <p style={{ color: C.sub, fontSize: 14, marginBottom: 12 }}>
           {esTactil
-            ? "Mantén pulsado un vehículo para moverlo de puesto o marcar su pago. Toca el chip para ver sus detalles."
-            : "Arrastra los vehículos para moverlos de puesto. Haz clic en un vehículo para ver sus detalles o clic derecho para más acciones."}
+            ? `Mantén pulsado ${MS_LONG_PRESS_MOVER / 1000} s sobre un vehículo para moverlo de puesto; ${MS_LONG_PRESS_PAGO / 1000} s para marcar su pago. Toca el chip para ver sus detalles.`
+            : "Arrastra los vehículos para moverlos de puesto. Haz clic en un vehículo para ver sus detalles o clic derecho para marcar su pago."}
         </p>
 
         <div style={{ position: "relative" }}>
@@ -835,8 +915,7 @@ export default function VehiculosPage() {
                 {puestos.map(p => {
                   const v = p.vehiculoActual;
                   const ocupado = p.estado_puesto && !!v;
-                  // Un único "resaltable" cubre los dos modos táctiles: colocar
-                  // (reactivar) y mover (reasignar). El puesto debe estar libre.
+                  // Los modos resaltables: colocar (reactivar) y mover (táctil).
                   const enModoDestino = (!!colocando || !!moviendo) && !ocupado;
                   const resaltado = enModoDestino && puestoHover === p.id;
 
@@ -896,13 +975,18 @@ export default function VehiculosPage() {
                           draggable={canEdit && !esTactil}
                           onDragStart={(e) => handleDragStart(e, v.placa)}
                           onTouchStart={(e) => iniciarLongPress(e, v)}
+                          onTouchMove={moverLongPress}
                           onTouchEnd={cancelarLongPress}
-                          onTouchMove={cancelarLongPress}
+                          onTouchCancel={cancelarLongPress}
                           onMouseEnter={() => setHover(v.placa)}
                           onMouseLeave={() => setHover(null)}
                           onContextMenu={e => {
                             e.preventDefault();
                             if (!canEdit) return;
+                            // En táctil, Android sintetiza `contextmenu` a ~500 ms y abriría el menú
+                            // mucho antes del umbral de 10 s. El menú queda exclusivo del long-press
+                            // sostenido; en escritorio sigue respondiendo al clic derecho.
+                            if (esTactil) return;
                             setMenu({ placa: v.placa, x: e.clientX, y: e.clientY, pagado: !!v.pagado });
                           }}
                           onClick={() => {
@@ -976,23 +1060,23 @@ export default function VehiculosPage() {
         </div>
       </Tarjeta>
 
-      {/* CONTEXT MENU: pago + mover. Columna porque en móvil es el patrón
-          operativo (pulgar vertical) y el ancho ya estaba reservado. */}
+      {/* CONTEXT MENU: solo acciones de pago. Se abre con clic derecho en
+          escritorio y con long-press sostenido en móvil. */}
       {menu && (
         <div
+          ref={menuRef}
           style={{
             position: "fixed",
-            top: menu.y,
-            left: menu.x,
+            // Fallback al punto crudo en el primer render; el layout effect de
+            // arriba lo ajusta antes de que el navegador pinte.
+            top:  menuPos?.y ?? menu.y,
+            left: menuPos?.x ?? menu.x,
             zIndex: 1000,
             background: C.card,
             border: `1px solid ${C.border}`,
             borderRadius: 8,
             padding: 6,
             boxShadow: "0 8px 24px rgba(0,0,0,.5)",
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
             minWidth: 170,
           }}
           onClick={e => e.stopPropagation()}
@@ -1004,16 +1088,6 @@ export default function VehiculosPage() {
             onClick={() => marcarPagado(menu.placa, !menu.pagado)}
           >
             {menu.pagado ? "Marcar pendiente" : "Marcar pagado"}
-          </Boton>
-          <Boton
-            small
-            variant="outline"
-            onClick={() => {
-              setMoviendo({ placa: menu.placa, pagado: menu.pagado });
-              setMenu(null);
-            }}
-          >
-            Mover de puesto
           </Boton>
         </div>
       )}

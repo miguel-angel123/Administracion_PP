@@ -172,12 +172,16 @@ button {
 
 /* Chips del mapa: en movil el long-press nativo abre el menu de copiar/
    seleccionar y se come el touchstart que dispara el menu contextual propio.
-   `touch-action` evita que el doble-tap haga zoom sobre el chip. */
+   `manipulation` deja pasar el pan: el contenedor scrollable del mapa
+   arrancaba scroll a la minima deriva del dedo y `moverLongPress` cancelaba
+   los dos timers. `none` impide iniciar cualquier gesto nativo desde el chip,
+   asi el long-press sobrevive. El scroll del mapa sigue disponible dejando
+   caer el dedo en el espacio libre entre puestos. */
 .chip-vehiculo {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
-  touch-action: manipulation;
+  touch-action: none;
 }
 
 /* Ticket imprimible: formato de recibo térmico simple.
